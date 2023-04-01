@@ -5,6 +5,7 @@ import maya.OpenMayaUI as OpenMayaUI
 import maya.OpenMaya as OpenMaya
 import os.path
 import math
+import subprocess
 
 from typing import Optional
 
@@ -35,11 +36,12 @@ class Layer:
         self.transparency_proj_name = transparency_proj_name
 
 class Proj2Tex:
-    def __init__(self, target_mesh: str, projections: list[Projection], layers: list[Layer], combined_image_path: str):
+    def __init__(self, target_mesh: str, projections: list[Projection], layers: list[Layer], combined_image_path: str, screenshot_res=(1280, 720)):
         self.target_mesh = target_mesh
         self.projections = projections
         self.layers = layers
         self.combined_image_path = combined_image_path
+        self.screenshot_res = screenshot_res
 
     def clear_nodes(self):
         for proj in self.projections:
@@ -96,22 +98,13 @@ class Proj2Tex:
         if unclipped:
             x = util_x.getShort(ptr_x)
             y = util_y.getShort(ptr_y)
+            print('({},{},{}) -> ({},{})'.format(pt[0], pt[1], pt[2], x, y))
             return x, y, True
         else:
             return None, None, False
 
     def save_screenshots(self):
         xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
-        bbox_pts = [
-            [xmin, ymin, zmin],
-            [xmin, ymin, zmax],
-            [xmin, ymax, zmin],
-            [xmin, ymax, zmax],
-            [xmax, ymin, zmin],
-            [xmax, ymin, zmax],
-            [xmax, ymax, zmin],
-            [xmax, ymax, zmax]
-        ]
         scr_cam = cmds.camera(name='proj_screenshot_cam', orthographic=True)[0]
         window = cmds.window('proj_screenshot_window')
         form = cmds.formLayout()
@@ -124,8 +117,8 @@ class Proj2Tex:
                 (meditor, 'right', 0)
             ])
             cmds.showWindow(window)
-            cmds.window(window, edit=True, width=1280, height=720)
-            cmds.modelEditor(meditor, edit=True, camera=scr_cam, displayAppearance='wireframe',
+            cmds.window(window, edit=True, width=self.screenshot_res[0], height=self.screenshot_res[1])
+            cmds.modelEditor(meditor, edit=True, activeView=True, camera=scr_cam, displayAppearance='wireframe',
                              headsUpDisplay=False, handles=False, grid=False, manipulators=False, viewSelected=True)
             view = OpenMayaUI.M3dView()
             OpenMayaUI.M3dView.getM3dViewFromModelEditor(meditor, view)
@@ -146,33 +139,38 @@ class Proj2Tex:
                 cmds.select(self.target_mesh)
                 cmds.viewFit(scr_cam, fitFactor=0.95)
 
-                crop_xmin = float('inf')
-                crop_ymin = float('inf')
-                crop_xmax = -float('inf')
-                crop_ymax = -float('inf')
-                for pt in bbox_pts:
-                    x, y, unclipped = Proj2Tex._world_to_viewport_pt(view, pt)
+                view.refresh(False, True)
+                if proj.direction == DIRECTION_FRONT:
+                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, ymin, (zmin+zmax)/2.0])
                     assert unclipped
-                    crop_xmin = min(crop_xmin, x)
-                    crop_ymin = min(crop_ymin, y)
-                    crop_xmax = max(crop_xmax, x)
-                    crop_ymax = max(crop_ymax, y)
+                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymax, (zmin+zmax)/2.0])
+                    assert unclipped
+                elif proj.direction == DIRECTION_SIDE:
+                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [(xmin+xmax)/2.0, ymin, zmax])
+                    assert unclipped
+                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [(xmin+xmax)/2.0, ymax, zmin])
+                    assert unclipped
+                elif proj.direction == DIRECTION_BACK:
+                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymin, (zmin+zmax)/2.0])
+                    assert unclipped
+                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, ymax, (zmin+zmax)/2.0])
+                    assert unclipped
+                else:
+                    raise Exception('unrecognized projection direction \'{}'.format(proj.direction) + '\', valid options are: {}'.format(proj.direction, VALID_DIRECTIONS))
 
                 tmp_image_path = proj.image_path + '.tmp' + os.path.splitext(proj.image_path)[1]
-                cmds.playblast(filename=tmp_image_path, editorPanelName=meditor, st=1, et=1, format='image',
-                               width=viewWidth, height=viewHeight, viewer=False)
+                cmds.refresh(fileExtension='png', filename=tmp_image_path)
 
-                print(proj.name, crop_xmin, crop_ymin, crop_xmax, crop_ymax)
+                ss_crop_xmin = crop_xmin
+                ss_crop_ymin = viewHeight - crop_ymax - 1
+                ss_crop_xmax = crop_xmax
+                ss_crop_ymax = viewHeight - crop_ymin - 1
 
-                screenshotWidth = view.playblastPortWidth()
-                screenshotHeight = view.playblastPortHeight()
+                subprocess.run(['magick', 'convert', tmp_image_path, '-crop',
+                                '{}x{}+{}+{}'.format(ss_crop_xmax - ss_crop_xmin, ss_crop_ymax - ss_crop_ymin, ss_crop_xmin, ss_crop_ymin),
+                                proj.image_path])
 
-                ss_crop_xmin = int(crop_xmin/viewWidth*screenshotWidth)
-                ss_crop_ymin = screenshotHeight - int(crop_ymax/viewHeight*screenshotHeight)
-                ss_crop_xmax = int(crop_xmax/viewWidth*screenshotWidth)
-                ss_crop_ymax = screenshotHeight - int(crop_ymin/viewHeight*screenshotHeight)
-
-                # print('crop {}: {} {} {} {}'.format(proj.name, ss_crop_xmin, ss_crop_ymin, ss_crop_xmax, ss_crop_ymax))
+                os.remove(tmp_image_path)
 
         finally:
             cmds.deleteUI(meditor)
