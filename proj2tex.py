@@ -98,7 +98,6 @@ class Proj2Tex:
         if unclipped:
             x = util_x.getShort(ptr_x)
             y = util_y.getShort(ptr_y)
-            print('({},{},{}) -> ({},{})'.format(pt[0], pt[1], pt[2], x, y))
             return x, y, True
         else:
             return None, None, False
