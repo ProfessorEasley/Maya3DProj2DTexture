@@ -1,3 +1,16 @@
+'''
+Projection to texture script
+
+2023 Sasha Volokh
+
+Install the script into your Maya script directory, then use the following command to run:
+
+import proj2tex
+import importlib
+importlib.reload(proj2tex)
+proj2tex.run()
+'''
+
 import maya.cmds as cmds
 import maya.utils
 import maya.mel
@@ -7,6 +20,7 @@ import os.path
 import math
 import subprocess
 import shutil
+import xml.etree.ElementTree as ET
 
 from typing import Optional
 
@@ -283,3 +297,36 @@ class Proj2Tex:
         cmds.select(self.target_mesh)
         cmds.hyperShade(assign=self._single_shader())
         self._clear_projections()
+
+def parse_config(config_path):
+    def abs_path(path):
+        return os.path.join(os.path.dirname(config_path), path)
+    tree = ET.parse(config_path)
+    root = tree.getroot()
+    projections = []
+    for proj_elem in root.findall('./projections/projection'):
+        proj = Projection(proj_elem.find('name').text,
+                          proj_elem.find('direction').text,
+                          abs_path(proj_elem.find('imagePath').text))
+        projections.append(proj)
+    layers = []
+    for layer_elem in root.findall('./layers/layer'):
+        transp = layer_elem.find('transparencyProjectionName')
+        layer = Layer(layer_elem.find('name').text,
+                      layer_elem.find('colorProjectionName').text,
+                      transp.text if transp is not None else None)
+        layers.append(layer)
+    combined_image_path = abs_path(root.find('./combinedImagePath').text)
+    screenshot_res = (
+        int(root.find('./screenshotResolution/width').text),
+        int(root.find('./screenshotResolution/height').text))
+    baked_texture_res = (
+        int(root.find('./bakedTextureResolution/width').text),
+        int(root.find('./bakedTextureResolution/height').text))
+    return dict(
+        projections=projections, layers=layers,
+        combined_image_path=combined_image_path, screenshot_res=screenshot_res,
+        baked_texture_res=baked_texture_res)
+
+def run():
+    pass
