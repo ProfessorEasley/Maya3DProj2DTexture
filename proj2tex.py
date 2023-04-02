@@ -29,11 +29,17 @@ class Projection:
     def material(self):
         return 'projMat_{}'.format(self.name)
 
+    def file(self):
+        return 'projFile_{}'.format(self.name)
+
 class Layer:
     def __init__(self, name: str, color_proj_name: str, transparency_proj_name: Optional[str]):
         self.name = name
         self.color_proj_name = color_proj_name
         self.transparency_proj_name = transparency_proj_name
+
+    def layer_material(self):
+        return 'layerMat_{}'.format(self.name)
 
 class Proj2Tex:
     def __init__(self, target_mesh: str, projections: list[Projection], layers: list[Layer], combined_image_path: str, screenshot_res=(1280, 720)):
@@ -43,6 +49,12 @@ class Proj2Tex:
         self.combined_image_path = combined_image_path
         self.screenshot_res = screenshot_res
 
+    def _find_projection_by_name(self, name):
+        for proj in self.projections:
+            if proj.name == name:
+                return proj
+        raise Exception('no projection exists with name \'{}\''.format(name))
+
     def clear_nodes(self):
         for proj in self.projections:
             if cmds.objExists(proj.place3dTexture()):
@@ -51,6 +63,13 @@ class Proj2Tex:
                 cmds.delete(proj.projection())
             if cmds.objExists(proj.material()):
                 cmds.delete(proj.material())
+            if cmds.objExists(proj.file()):
+                cmds.delete(proj.file())
+        for l in self.layers:
+            if cmds.objExists(l.layer_material()):
+                cmds.delete(l.layer_material())
+        if cmds.objExists(self._layered_shader()):
+            cmds.delete(self._layered_shader())
 
     def make_projections(self):
         xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
@@ -85,6 +104,7 @@ class Proj2Tex:
             cmds.shadingNode('projection', name=proj.projection(), asUtility=True)
             cmds.connectAttr(proj.place3dTexture() + '.worldInverseMatrix', proj.projection() + '.placementMatrix', f=True)
             cmds.shadingNode('lambert', name=proj.material(), asShader=True)
+            self._configure_lambert_mat(proj.material())
             cmds.connectAttr(proj.projection() + '.outColor', proj.material() + '.color')
 
     @staticmethod
@@ -101,6 +121,12 @@ class Proj2Tex:
             return x, y, True
         else:
             return None, None, False
+
+    def _configure_lambert_mat(self, mat):
+        cmds.setAttr(mat + '.diffuse', 1.0)
+        cmds.setAttr(mat + '.translucence', 0.0)
+        cmds.setAttr(mat + '.translucenceDepth', 0.0)
+        cmds.setAttr(mat + '.translucenceFocus', 0.0)
 
     def save_screenshots(self):
         xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
@@ -176,9 +202,34 @@ class Proj2Tex:
             cmds.deleteUI(window)
             cmds.delete(scr_cam)
 
+    def _layered_shader(self):
+        return '{}_material'.format(self.target_mesh)
 
     def make_layered_shader(self):
-        pass
+        for proj in self.projections:
+            cmds.shadingNode('file', name=proj.file(), asTexture=True, isColorManaged=True)
+            cmds.setAttr(proj.file() + '.fileTextureName', proj.image_path, type='string')
+            cmds.connectAttr(proj.file() + '.outColor', proj.projection() + '.image')
+        cmds.shadingNode('layeredShader', name=self._layered_shader(), asShader=True)
+        cmds.setAttr(self._layered_shader() + '.compositingFlag', 1)
+        for index in range(len(self.layers)):
+            l = self.layers[index]
+            if l.transparency_proj_name is None:
+                color_proj = self._find_projection_by_name(l.color_proj_name)
+                layer_mat = color_proj.material()
+            else:
+                cmds.shadingNode('lambert', name=l.layer_material(), asShader=True)
+                self._configure_lambert_mat(l.layer_material())
+                color_proj = self._find_projection_by_name(l.color_proj_name)
+                transp_proj = self._find_projection_by_name(l.transparency_proj_name)
+                cmds.connectAttr(color_proj.material() + '.outColor', l.layer_material() + '.color')
+                cmds.connectAttr(transp_proj.material() + '.outColor', l.layer_material() + '.transparency')
+                layer_mat = l.layer_material()
+            cmds.connectAttr(layer_mat + '.outColor', self._layered_shader() + '.inputs[{}].color'.format(index))
+            cmds.connectAttr(layer_mat + '.outTransparency', self._layered_shader() + '.inputs[{}].transparency'.format(index))
+            cmds.connectAttr(layer_mat + '.outGlowColor', self._layered_shader() + '.inputs[{}].glowColor'.format(index))
+        cmds.select(self.target_mesh)
+        cmds.hyperShade(assign=self._layered_shader())
 
     def convert(self):
         pass
