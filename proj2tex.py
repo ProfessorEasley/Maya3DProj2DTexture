@@ -26,9 +26,6 @@ class Projection:
     def projection(self):
         return 'proj_{}'.format(self.name)
 
-    def material(self):
-        return 'projMat_{}'.format(self.name)
-
     def file(self):
         return 'projFile_{}'.format(self.name)
 
@@ -42,12 +39,14 @@ class Layer:
         return 'layerMat_{}'.format(self.name)
 
 class Proj2Tex:
-    def __init__(self, target_mesh: str, projections: list[Projection], layers: list[Layer], combined_image_path: str, screenshot_res=(1280, 720)):
+    def __init__(self, target_mesh: str, projections: list[Projection], layers: list[Layer],
+                 combined_image_path: str, screenshot_res=(1280, 720), baked_texture_res=(512, 512)):
         self.target_mesh = target_mesh
         self.projections = projections
         self.layers = layers
         self.combined_image_path = combined_image_path
         self.screenshot_res = screenshot_res
+        self.baked_texture_res = baked_texture_res
 
     def _find_projection_by_name(self, name):
         for proj in self.projections:
@@ -55,21 +54,25 @@ class Proj2Tex:
                 return proj
         raise Exception('no projection exists with name \'{}\''.format(name))
 
-    def clear_nodes(self):
+    def _clear_projections(self):
         for proj in self.projections:
             if cmds.objExists(proj.place3dTexture()):
                 cmds.delete(proj.place3dTexture())
             if cmds.objExists(proj.projection()):
                 cmds.delete(proj.projection())
-            if cmds.objExists(proj.material()):
-                cmds.delete(proj.material())
             if cmds.objExists(proj.file()):
                 cmds.delete(proj.file())
+
+    def _clear_layered_shader(self):
         for l in self.layers:
             if cmds.objExists(l.layer_material()):
                 cmds.delete(l.layer_material())
         if cmds.objExists(self._layered_shader()):
             cmds.delete(self._layered_shader())
+
+    def clear_nodes(self):
+        self._clear_projections()
+        self._clear_layered_shader()
 
     def make_projections(self):
         xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
@@ -103,11 +106,6 @@ class Proj2Tex:
             cmds.setAttr(proj.place3dTexture() + '.scaleZ', sclZ)
             cmds.shadingNode('projection', name=proj.projection(), asUtility=True)
             cmds.connectAttr(proj.place3dTexture() + '.worldInverseMatrix', proj.projection() + '.placementMatrix', f=True)
-            cmds.shadingNode('standardSurface', name=proj.material(), asShader=True)
-            cmds.setAttr(proj.material() + '.base', 0.0)
-            cmds.setAttr(proj.material() + '.specular', 0.0)
-            cmds.setAttr(proj.material() + '.emission', 1.0)
-            cmds.connectAttr(proj.projection() + '.outColor', proj.material() + '.emissionColor')
 
     @staticmethod
     def _world_to_viewport_pt(view, pt):
@@ -216,10 +214,10 @@ class Proj2Tex:
             cmds.setAttr(l.layer_material() + '.translucenceDepth', 0.0)
             cmds.setAttr(l.layer_material() + '.translucenceFocus', 0.0)
             color_proj = self._find_projection_by_name(l.color_proj_name)
-            cmds.connectAttr(color_proj.material() + '.outColor', l.layer_material() + '.color')
+            cmds.connectAttr(color_proj.projection() + '.outColor', l.layer_material() + '.color')
             if l.transparency_proj_name is not None:
                 transp_proj = self._find_projection_by_name(l.transparency_proj_name)
-                cmds.connectAttr(transp_proj.material() + '.outColor', l.layer_material() + '.transparency')
+                cmds.connectAttr(transp_proj.projection() + '.outColor', l.layer_material() + '.transparency')
             layer_mat = l.layer_material()
             cmds.connectAttr(layer_mat + '.outColor', self._layered_shader() + '.inputs[{}].color'.format(index))
             cmds.connectAttr(layer_mat + '.outTransparency', self._layered_shader() + '.inputs[{}].transparency'.format(index))
@@ -227,7 +225,16 @@ class Proj2Tex:
         cmds.hyperShade(assign=self._layered_shader())
 
     def convert(self):
-        pass
+        self._clear_layered_shader()
+        for proj in self.projections:
+            file_format = os.path.splitext(proj.image_path)[1][1:]
+            file_image_name = os.path.splitext(proj.image_path)[0] + '_baked.{}'.format(file_format)
+            cmds.convertSolidTx(proj.projection() + '.outColor', self.target_mesh,
+                antiAlias=True, backgroundMode=1, fillTextureSeams=True,
+                samplePlane=False, shadows=False, alpha=False, doubleSided=False, componentRange=False,
+                resolutionX=self.baked_texture_res[0], resolutionY=self.baked_texture_res[1],
+                fileFormat=file_format, fileImageName=file_image_name)
+
 
     def combine(self):
         pass
