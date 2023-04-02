@@ -78,6 +78,16 @@ class Proj2Tex:
     def clear_nodes(self):
         self._clear_projections()
         self._clear_layered_shader()
+        if cmds.objExists(self._single_shader()):
+            cmds.delete(self._single_shader())
+        if cmds.objExists(self._single_shader_file()):
+            cmds.delete(self._single_shader_file())
+
+    def _configure_lambert_material(self, mat):
+        cmds.setAttr(mat + '.diffuse', 1.0)
+        cmds.setAttr(mat + '.translucence', 0.0)
+        cmds.setAttr(mat + '.translucenceDepth', 0.0)
+        cmds.setAttr(mat + '.translucenceFocus', 0.0)
 
     def make_projections(self):
         xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
@@ -202,7 +212,13 @@ class Proj2Tex:
             cmds.delete(scr_cam)
 
     def _layered_shader(self):
+        return '{}_layered_material'.format(self.target_mesh)
+
+    def _single_shader(self):
         return '{}_material'.format(self.target_mesh)
+
+    def _single_shader_file(self):
+        return '{}_file'.format(self.target_mesh)
 
     def make_layered_shader(self):
         for proj in self.projections:
@@ -214,10 +230,7 @@ class Proj2Tex:
         for index in range(len(self.layers)):
             l = self.layers[index]
             cmds.shadingNode('lambert', name=l.layer_material(), asShader=True)
-            cmds.setAttr(l.layer_material() + '.diffuse', 1.0)
-            cmds.setAttr(l.layer_material() + '.translucence', 0.0)
-            cmds.setAttr(l.layer_material() + '.translucenceDepth', 0.0)
-            cmds.setAttr(l.layer_material() + '.translucenceFocus', 0.0)
+            self._configure_lambert_material(l.layer_material())
             color_proj = self._find_projection_by_name(l.color_proj_name)
             cmds.connectAttr(color_proj.projection() + '.outColor', l.layer_material() + '.color')
             if l.transparency_proj_name is not None:
@@ -262,4 +275,11 @@ class Proj2Tex:
                 os.remove(path)
 
     def apply_to_single_shader(self):
-        pass
+        cmds.shadingNode('lambert', name=self._single_shader(), asShader=True)
+        self._configure_lambert_material(self._single_shader())
+        cmds.shadingNode('file', name=self._single_shader_file(), asTexture=True, isColorManaged=True)
+        cmds.setAttr(self._single_shader_file() + '.fileTextureName', self.combined_image_path, type='string')
+        cmds.connectAttr(self._single_shader_file() + '.outColor', self._single_shader() + '.color')
+        cmds.select(self.target_mesh)
+        cmds.hyperShade(assign=self._single_shader())
+        self._clear_projections()
