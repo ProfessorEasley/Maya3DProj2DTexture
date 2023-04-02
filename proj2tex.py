@@ -104,6 +104,7 @@ class Proj2Tex:
         cmds.setAttr(mat + '.translucenceFocus', 0.0)
 
     def make_projections(self):
+        self.clear_nodes()
         xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
         for proj in self.projections:
             cmds.shadingNode('place3dTexture', name=proj.place3dTexture(), asUtility=True)
@@ -238,7 +239,7 @@ class Proj2Tex:
         for proj in self.projections:
             cmds.shadingNode('file', name=proj.file(), asTexture=True, isColorManaged=True)
             cmds.setAttr(proj.file() + '.fileTextureName', proj.image_path, type='string')
-            cmds.connectAttr(proj.file() + '.outColor', proj.projection() + '.image')
+            cmds.connectAttr(proj.file() + '.outColor', proj.projection() + '.image', f=True)
         cmds.shadingNode('layeredShader', name=self._layered_shader(), asShader=True)
         cmds.setAttr(self._layered_shader() + '.compositingFlag', 1)
         for index in range(len(self.layers)):
@@ -246,13 +247,13 @@ class Proj2Tex:
             cmds.shadingNode('lambert', name=l.layer_material(), asShader=True)
             self._configure_lambert_material(l.layer_material())
             color_proj = self._find_projection_by_name(l.color_proj_name)
-            cmds.connectAttr(color_proj.projection() + '.outColor', l.layer_material() + '.color')
+            cmds.connectAttr(color_proj.projection() + '.outColor', l.layer_material() + '.color', f=True)
             if l.transparency_proj_name is not None:
                 transp_proj = self._find_projection_by_name(l.transparency_proj_name)
-                cmds.connectAttr(transp_proj.projection() + '.outColor', l.layer_material() + '.transparency')
+                cmds.connectAttr(transp_proj.projection() + '.outColor', l.layer_material() + '.transparency', f=True)
             layer_mat = l.layer_material()
-            cmds.connectAttr(layer_mat + '.outColor', self._layered_shader() + '.inputs[{}].color'.format(index))
-            cmds.connectAttr(layer_mat + '.outTransparency', self._layered_shader() + '.inputs[{}].transparency'.format(index))
+            cmds.connectAttr(layer_mat + '.outColor', self._layered_shader() + '.inputs[{}].color'.format(index), f=True)
+            cmds.connectAttr(layer_mat + '.outTransparency', self._layered_shader() + '.inputs[{}].transparency'.format(index), f=True)
         cmds.select(self.target_mesh)
         cmds.hyperShade(assign=self._layered_shader())
 
@@ -293,7 +294,7 @@ class Proj2Tex:
         self._configure_lambert_material(self._single_shader())
         cmds.shadingNode('file', name=self._single_shader_file(), asTexture=True, isColorManaged=True)
         cmds.setAttr(self._single_shader_file() + '.fileTextureName', self.combined_image_path, type='string')
-        cmds.connectAttr(self._single_shader_file() + '.outColor', self._single_shader() + '.color')
+        cmds.connectAttr(self._single_shader_file() + '.outColor', self._single_shader() + '.color', f=True)
         cmds.select(self.target_mesh)
         cmds.hyperShade(assign=self._single_shader())
         self._clear_projections()
@@ -329,4 +330,78 @@ def parse_config(config_path):
         baked_texture_res=baked_texture_res)
 
 def run():
-    pass
+    window = 'proj2tex_window'
+    if cmds.window(window, exists=True):
+        cmds.deleteUI(window, window=True)
+    cmds.window(window, title='Projection To Texture')
+    column = cmds.columnLayout(columnWidth=250, columnAttach=('both', 5), rowSpacing=10)
+
+    row = cmds.rowLayout(parent=column, numberOfColumns=2, columnWidth2=(80, 150), columnAttach2=('both', 'both'))
+    cmds.text(parent=row, label='Target Mesh:')
+    targetTextField = cmds.textField(parent=row)
+
+    row = cmds.rowLayout(parent=column, numberOfColumns=3, columnWidth3=(80, 100, 50), columnAttach3=('both', 'both', 'both'))
+    cmds.text(parent=row, label='Configuration:')
+    configTextField = cmds.textField(parent=row, editable=False)
+    def browseConfig(*args):
+        filename = cmds.fileDialog2(fileMode=1, caption="Select Configuration File", fileFilter="*.xml")
+        if filename is None:
+            return
+        path = os.path.abspath(filename[0])
+        cmds.textField(configTextField, edit=True, text=path)
+        for btn in p2tButtons:
+            cmds.button(btn, edit=True, enable=True)
+    cmds.button(parent=row, label='Browse', command=browseConfig)
+
+    def make_p2t():
+        target_mesh = cmds.textField(targetTextField, q=True, text=True)
+        config_path = cmds.textField(configTextField, q=True, text=True)
+        if not cmds.objExists(target_mesh):
+            cmds.confirmDialog(
+                title='Error: Invalid target mesh',
+                message='Specified target mesh \'{}\' does not exist'.format(target_mesh),
+                button='OK')
+            return None
+        if not os.path.exists(config_path):
+            cmds.confirmDialog(
+                title='Error: Invalid configuration path',
+                message='Configuration file does not exist or was not specified',
+                button='OK')
+            return None
+        return Proj2Tex(target_mesh, **parse_config(config_path))
+
+    def makeProjections(*args):
+        make_p2t().make_projections()
+
+    def saveScreenshots(*args):
+        make_p2t().save_screenshots()
+
+    def makeLayeredShader(*args):
+        make_p2t().make_layered_shader()
+
+    def convert(*args):
+        make_p2t().convert()
+
+    def combine(*args):
+        make_p2t().combine()
+
+    def applyToSingleShader(*args):
+        make_p2t().apply_to_single_shader()
+
+    def reset(*args):
+        make_p2t().clear_nodes()
+
+    p2tButtons = [
+        cmds.button(parent=column, label='1. Make Projections', command=makeProjections),
+        cmds.button(parent=column, label='2. Save Screenshots', command=saveScreenshots),
+        cmds.button(parent=column, label='3. Make Layered Shader', command=makeLayeredShader),
+        cmds.button(parent=column, label='4. Convert Projections To Textures', command=convert),
+        cmds.button(parent=column, label='5. Combine Textures', command=combine),
+        cmds.button(parent=column, label='6. Apply To Single Shader', command=applyToSingleShader),
+        cmds.button(parent=column, label='Reset', command=reset)
+    ]
+    for btn in p2tButtons:
+        cmds.button(btn, edit=True, enable=False)
+
+    cmds.showWindow(window)
+    cmds.window(window, edit=True, width=250, height=300, sizeable=False)
