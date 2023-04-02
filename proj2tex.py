@@ -230,11 +230,10 @@ class Proj2Tex:
             file_format = os.path.splitext(proj.image_path)[1][1:]
             file_image_name = os.path.splitext(proj.image_path)[0] + '_baked.{}'.format(file_format)
             cmds.convertSolidTx(proj.projection() + '.outColor', self.target_mesh,
-                antiAlias=True, backgroundMode=1, fillTextureSeams=True,
+                antiAlias=False, backgroundMode=1, fillTextureSeams=True, force=True,
                 samplePlane=False, shadows=False, alpha=False, doubleSided=False, componentRange=False,
                 resolutionX=self.baked_texture_res[0], resolutionY=self.baked_texture_res[1],
                 fileFormat=file_format, fileImageName=file_image_name)
-
 
     def combine(self):
         pass
