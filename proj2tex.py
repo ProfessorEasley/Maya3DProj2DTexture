@@ -6,6 +6,7 @@ import maya.OpenMaya as OpenMaya
 import os.path
 import math
 import subprocess
+import shutil
 
 from typing import Optional
 
@@ -28,6 +29,10 @@ class Projection:
 
     def file(self):
         return 'projFile_{}'.format(self.name)
+
+    def baked_image_path(self):
+        file_format = os.path.splitext(self.image_path)[1][1:]
+        return os.path.splitext(self.image_path)[0] + '_baked.{}'.format(file_format)
 
 class Layer:
     def __init__(self, name: str, color_proj_name: str, transparency_proj_name: Optional[str]):
@@ -227,8 +232,8 @@ class Proj2Tex:
     def convert(self):
         self._clear_layered_shader()
         for proj in self.projections:
-            file_format = os.path.splitext(proj.image_path)[1][1:]
-            file_image_name = os.path.splitext(proj.image_path)[0] + '_baked.{}'.format(file_format)
+            file_image_name = proj.baked_image_path()
+            file_format = os.path.splitext(file_image_name)[1][1:]
             cmds.convertSolidTx(proj.projection() + '.outColor', self.target_mesh,
                 antiAlias=False, backgroundMode=1, fillTextureSeams=True, force=True,
                 samplePlane=False, shadows=False, alpha=False, doubleSided=False, componentRange=False,
@@ -236,7 +241,25 @@ class Proj2Tex:
                 fileFormat=file_format, fileImageName=file_image_name)
 
     def combine(self):
-        pass
+        tmp_images = []
+        try:
+            file_fmt = os.path.splitext(self.combined_image_path)[1][1:]
+            img = self._find_projection_by_name(self.layers[len(self.layers)-1].color_proj_name).baked_image_path()
+            for i in range(len(self.layers)-2, -1, -1):
+                l = self.layers[i]
+                color_img = self._find_projection_by_name(l.color_proj_name).baked_image_path()
+                if l.transparency_proj_name is None:
+                    img = color_img
+                else:
+                    transp_img = self._find_projection_by_name(l.transparency_proj_name).baked_image_path()
+                    output_path = os.path.splitext(self.combined_image_path)[0] + '.tmp{}.'.format(i) + file_fmt
+                    subprocess.run(['magick', 'convert', '-composite', color_img, img, transp_img, output_path])
+                    tmp_images.append(output_path)
+                    img = output_path
+            shutil.copy(img, self.combined_image_path)
+        finally:
+            for path in tmp_images:
+                os.remove(path)
 
     def apply_to_single_shader(self):
         pass
