@@ -103,9 +103,11 @@ class Proj2Tex:
             cmds.setAttr(proj.place3dTexture() + '.scaleZ', sclZ)
             cmds.shadingNode('projection', name=proj.projection(), asUtility=True)
             cmds.connectAttr(proj.place3dTexture() + '.worldInverseMatrix', proj.projection() + '.placementMatrix', f=True)
-            cmds.shadingNode('lambert', name=proj.material(), asShader=True)
-            self._configure_lambert_mat(proj.material())
-            cmds.connectAttr(proj.projection() + '.outColor', proj.material() + '.color')
+            cmds.shadingNode('standardSurface', name=proj.material(), asShader=True)
+            cmds.setAttr(proj.material() + '.base', 0.0)
+            cmds.setAttr(proj.material() + '.specular', 0.0)
+            cmds.setAttr(proj.material() + '.emission', 1.0)
+            cmds.connectAttr(proj.projection() + '.outColor', proj.material() + '.emissionColor')
 
     @staticmethod
     def _world_to_viewport_pt(view, pt):
@@ -121,12 +123,6 @@ class Proj2Tex:
             return x, y, True
         else:
             return None, None, False
-
-    def _configure_lambert_mat(self, mat):
-        cmds.setAttr(mat + '.diffuse', 1.0)
-        cmds.setAttr(mat + '.translucence', 0.0)
-        cmds.setAttr(mat + '.translucenceDepth', 0.0)
-        cmds.setAttr(mat + '.translucenceFocus', 0.0)
 
     def save_screenshots(self):
         xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
@@ -214,20 +210,19 @@ class Proj2Tex:
         cmds.setAttr(self._layered_shader() + '.compositingFlag', 1)
         for index in range(len(self.layers)):
             l = self.layers[index]
-            if l.transparency_proj_name is None:
-                color_proj = self._find_projection_by_name(l.color_proj_name)
-                layer_mat = color_proj.material()
-            else:
-                cmds.shadingNode('lambert', name=l.layer_material(), asShader=True)
-                self._configure_lambert_mat(l.layer_material())
-                color_proj = self._find_projection_by_name(l.color_proj_name)
+            cmds.shadingNode('lambert', name=l.layer_material(), asShader=True)
+            cmds.setAttr(l.layer_material() + '.diffuse', 1.0)
+            cmds.setAttr(l.layer_material() + '.translucence', 0.0)
+            cmds.setAttr(l.layer_material() + '.translucenceDepth', 0.0)
+            cmds.setAttr(l.layer_material() + '.translucenceFocus', 0.0)
+            color_proj = self._find_projection_by_name(l.color_proj_name)
+            cmds.connectAttr(color_proj.material() + '.outColor', l.layer_material() + '.color')
+            if l.transparency_proj_name is not None:
                 transp_proj = self._find_projection_by_name(l.transparency_proj_name)
-                cmds.connectAttr(color_proj.material() + '.outColor', l.layer_material() + '.color')
                 cmds.connectAttr(transp_proj.material() + '.outColor', l.layer_material() + '.transparency')
-                layer_mat = l.layer_material()
+            layer_mat = l.layer_material()
             cmds.connectAttr(layer_mat + '.outColor', self._layered_shader() + '.inputs[{}].color'.format(index))
             cmds.connectAttr(layer_mat + '.outTransparency', self._layered_shader() + '.inputs[{}].transparency'.format(index))
-            cmds.connectAttr(layer_mat + '.outGlowColor', self._layered_shader() + '.inputs[{}].glowColor'.format(index))
         cmds.select(self.target_mesh)
         cmds.hyperShade(assign=self._layered_shader())
 
