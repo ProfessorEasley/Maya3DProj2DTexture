@@ -59,11 +59,12 @@ class Layer:
 
 class Proj2Tex:
     def __init__(self, target_mesh: str, projections: list[Projection], layers: list[Layer],
-                 combined_image_path: str, screenshot_res=(1280, 720), baked_texture_res=(512, 512)):
+                 combined_image_path: str, projection_padding=0.1, screenshot_res=(1280, 720), baked_texture_res=(512, 512)):
         self.target_mesh = target_mesh
         self.projections = projections
         self.layers = layers
         self.combined_image_path = combined_image_path
+        self.projection_padding = projection_padding
         self.screenshot_res = screenshot_res
         self.baked_texture_res = baked_texture_res
 
@@ -103,9 +104,17 @@ class Proj2Tex:
         cmds.setAttr(mat + '.translucenceDepth', 0.0)
         cmds.setAttr(mat + '.translucenceFocus', 0.0)
 
+    def compute_bbox(self):
+        xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
+        padding = self.projection_padding*math.sqrt((xmax - xmin)**2 + (ymax - ymin)**2 + (zmax - zmin)**2)
+        xc, yc, zc = (xmin + xmax)/2.0, (ymin + ymax)/2.0, (zmin + zmax)/2.0
+        extX, extY, extZ = (xmax - xmin)/2.0, (ymax - ymin)/2.0, (zmax - zmin)/2.0
+        return xc - extX - padding, yc - extY - padding, zc - extZ - padding, \
+               xc + extX + padding, yc + extY + padding, zc + extZ + padding
+
     def make_projections(self):
         self.clear_nodes()
-        xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
+        xmin, ymin, zmin, xmax, ymax, zmax = self.compute_bbox()
         for proj in self.projections:
             cmds.shadingNode('place3dTexture', name=proj.place3dTexture(), asUtility=True)
             posX, posY, posZ = (xmin + xmax)/2, (ymin + ymax)/2, (zmin + zmax)/2
@@ -153,7 +162,7 @@ class Proj2Tex:
             return None, None, False
 
     def save_screenshots(self):
-        xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
+        xmin, ymin, zmin, xmax, ymax, zmax = self.compute_bbox()
         scr_cam = cmds.camera(name='proj_screenshot_cam', orthographic=True)[0]
         window = cmds.window('proj_screenshot_window')
         form = cmds.formLayout()
@@ -184,9 +193,9 @@ class Proj2Tex:
                 cmds.select(self.target_mesh)
                 cmds.select(proj.place3dTexture(), add=True)
                 cmds.modelEditor(meditor, edit=True, addSelected=True)
+                cmds.viewFit(scr_cam, fitFactor=0.95)
 
                 cmds.select(self.target_mesh)
-                cmds.viewFit(scr_cam, fitFactor=0.95)
 
                 view.refresh(False, True)
                 if proj.direction == DIRECTION_FRONT:
@@ -318,16 +327,19 @@ def parse_config(config_path):
                       transp.text if transp is not None else None)
         layers.append(layer)
     combined_image_path = abs_path(root.find('./combinedImagePath').text)
-    screenshot_res = (
-        int(root.find('./screenshotResolution/width').text),
-        int(root.find('./screenshotResolution/height').text))
-    baked_texture_res = (
-        int(root.find('./bakedTextureResolution/width').text),
-        int(root.find('./bakedTextureResolution/height').text))
-    return dict(
+    config = dict(
         projections=projections, layers=layers,
-        combined_image_path=combined_image_path, screenshot_res=screenshot_res,
-        baked_texture_res=baked_texture_res)
+        combined_image_path=combined_image_path)
+    projection_padding_elem = root.find('./projectionPaddingPercentage')
+    screenshot_res_elem = root.find('./screenshotResolution')
+    baked_tex_res_elem = root.find('./bakedTextureResolution')
+    if projection_padding_elem is not None:
+        config['projection_padding'] = float(projection_padding_elem.text)/100.0
+    if screenshot_res_elem is not None:
+        config['screenshot_res'] = (int(screenshot_res_elem.find('./width').text), int(screenshot_res_elem.find('./height').text))
+    if baked_tex_res_elem is not None:
+        config['baked_texture_res'] = (int(baked_tex_res_elem.find('./width').text), int(baked_tex_res_elem.find('./height').text))
+    return config
 
 def run():
     window = 'proj2tex_window'
