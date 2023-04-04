@@ -24,6 +24,8 @@ import xml.etree.ElementTree as ET
 
 from typing import Optional
 
+VERSION = '1.0'
+
 DIRECTION_FRONT = 'front'
 DIRECTION_BACK = 'back'
 DIRECTION_SIDE = 'side'
@@ -345,41 +347,115 @@ def run():
     window = 'proj2tex_window'
     if cmds.window(window, exists=True):
         cmds.deleteUI(window, window=True)
-    cmds.window(window, title='Projection To Texture')
-    column = cmds.columnLayout(columnWidth=250, columnAttach=('both', 5), rowSpacing=10)
+    cmds.window(window, title='Projection To Texture {}'.format(VERSION), menuBar=True)
 
-    row = cmds.rowLayout(parent=column, numberOfColumns=2, columnWidth2=(80, 150), columnAttach2=('both', 'both'))
+    def openInstructions(*args):
+        cmds.showHelp('https://docs.google.com/document/d/1VQoMDkgJMDK96tKnDrkXo3BrMqFonKYxQL4Dk9eqtLg/edit?usp=sharing', absolute=True)
+
+    def openAbout(*args):
+        cmds.confirmDialog(
+            title = 'About',
+            message = 'Projection To Texture Script v{}\nWritten by Sasha Volokh (2023)'.format(VERSION),
+            button = 'OK')
+
+    helpMenu = cmds.menu(label='Help', helpMenu=True, parent=window)
+    cmds.menuItem(label='Instructions', parent=helpMenu, command=openInstructions)
+    cmds.menuItem(label='About', parent=helpMenu, command=openAbout)
+
+    column = cmds.columnLayout(parent=window, columnWidth=400, columnAttach=('both', 5), rowSpacing=10)
+
+    row = cmds.rowLayout(parent=column, numberOfColumns=3, columnWidth3=(100, 180, 120), columnAttach3=('both', 'both', 'both'))
     cmds.text(parent=row, label='Target Mesh:')
-    targetTextField = cmds.textField(parent=row)
-
-    row = cmds.rowLayout(parent=column, numberOfColumns=3, columnWidth3=(80, 100, 50), columnAttach3=('both', 'both', 'both'))
-    cmds.text(parent=row, label='Configuration:')
-    configTextField = cmds.textField(parent=row, editable=False)
-    def browseConfig(*args):
-        filename = cmds.fileDialog2(fileMode=1, caption="Select Configuration File", fileFilter="*.xml")
-        if filename is None:
+    targetMeshTextField = cmds.textField(parent=row)
+    def updateTargetMesh(*args):
+        sel = cmds.ls(selection=True)
+        if len(sel) == 0:
+            cmds.confirmDialog(title='Error: No selection', message='No object is currently selected', button='OK')
             return
-        path = os.path.abspath(filename[0])
-        cmds.textField(configTextField, edit=True, text=path)
-        for btn in p2tButtons:
-            cmds.button(btn, edit=True, enable=True)
-    cmds.button(parent=row, label='Browse', command=browseConfig)
+        elif len(sel) > 1:
+            cmds.confirmDialog(title='Error: Ambiguous selection', message='More than one object selected (only the target mesh should be selected)', button='OK')
+            return
+        cmds.textField(targetMeshTextField, edit=True, text=sel[0])
+    cmds.button(parent=row, label='Update', command=updateTargetMesh)
+
+    row = cmds.rowLayout(parent=column, numberOfColumns=3, columnWidth3=(100, 180, 120), columnAttach3=('both', 'both', 'both'))
+    cmds.text(parent=row, label='Working Directory:')
+    workingDirTextField = cmds.textField(parent=row)
+    def browseWorkingDir(*args):
+        # TODO
+        pass
+    cmds.button(parent=row, label='Browse', command=browseWorkingDir)
+
+    configFrame = cmds.frameLayout(parent=column, label='Configuration')
+    configScroll = cmds.scrollLayout(parent=configFrame, verticalScrollBarThickness=0, horizontalScrollBarThickness=0, height=250)
+    configColumn = cmds.columnLayout(parent=configScroll, columnWidth=300, columnAttach=('both', 5), rowSpacing=10)
+
+    grid = cmds.gridLayout(parent=configColumn, numberOfColumns=3, cellWidth=100)
+    cmds.text(parent=grid, label='Projections')
+    cmds.text(parent=grid, label='Color')
+    cmds.text(parent=grid, label='Alpha')
+    frontCheckBox = cmds.checkBox(parent=grid, value=True, label='Front')
+    frontColorTextField = cmds.textField(parent=grid, text='front.png')
+    frontAlphaTextField = cmds.textField(parent=grid, text='')
+    backCheckBox = cmds.checkBox(parent=grid, value=True, label='Back')
+    backColorTextField = cmds.textField(parent=grid, text='back.png')
+    backAlphaTextField = cmds.textField(parent=grid, text='')
+    sideCheckBox = cmds.checkBox(parent=grid, value=True, label='Side')
+    sideColorTextField = cmds.textField(parent=grid, text='')
+    sideAlphaTextField = cmds.textField(parent=grid, text='sideAlpha.png')
+
+    row = cmds.rowLayout(parent=configColumn, numberOfColumns=2, columnWidth2=(150, 150), columnAttach2=('both', 'both'))
+    cmds.text(parent=row, label='Projection Padding (%):')
+    cmds.textField(parent=row, text='10')
+
+    grid = cmds.gridLayout(parent=configColumn, numberOfColumns=3, cellWidth=95)
+    cmds.text(parent=grid, label='Layers')
+    cmds.text(parent=grid, label='Color')
+    cmds.text(parent=grid, label='Alpha')
+    layerControls = []
+    maxLayers = 4
+    for i in range(maxLayers):
+        cmds.text(parent=grid, label='Layer {}'.format(i+1))
+        layerColorMenu = cmds.optionMenu(parent=grid)
+        cmds.menuItem(label='')
+        cmds.menuItem(label='Front')
+        cmds.menuItem(label='Back')
+        cmds.menuItem(label='Side')
+        layerAlphaMenu = cmds.optionMenu(parent=grid)
+        cmds.menuItem(label='')
+        cmds.menuItem(label='Front')
+        cmds.menuItem(label='Back')
+        cmds.menuItem(label='Side')
+        layerControls.append((layerColorMenu, layerAlphaMenu))
+    cmds.optionMenu(layerControls[0][0], edit=True, select=2)
+    cmds.optionMenu(layerControls[0][1], edit=True, select=4)
+    cmds.optionMenu(layerControls[1][0], edit=True, select=3)
+
+    row = cmds.rowLayout(parent=configColumn, numberOfColumns=2, columnWidth2=(150, 150), columnAttach2=('both', 'both'))
+    cmds.text(parent=row, label='Combined Image Name:')
+    combinedTextField = cmds.textField(parent=row, text='combined.png')
+
+    row = cmds.rowLayout(parent=configColumn, numberOfColumns=3, columnWidth3=(150, 75, 75), columnAttach3=('both', 'both', 'both'))
+    cmds.text(parent=row, label='Screenshot Resolution:')
+    screenshotResWidthTextField = cmds.textField(parent=row, text='1280')
+    screenshotResHeightTextField = cmds.textField(parent=row, text='720')
+
+    row = cmds.rowLayout(parent=configColumn, numberOfColumns=3, columnWidth3=(150, 75, 75), columnAttach3=('both', 'both', 'both'))
+    cmds.text(parent=row, label='Converted Resolution:')
+    convertedResWidthTextField = cmds.textField(parent=row, text='512')
+    convertedResHeightTextField = cmds.textField(parent=row, text='512')
 
     def make_p2t():
-        target_mesh = cmds.textField(targetTextField, q=True, text=True)
-        config_path = cmds.textField(configTextField, q=True, text=True)
+        target_mesh = cmds.textField(targetMeshTextField, q=True, text=True)
+        config_path = os.path.join(os.path.abspath(cmds.textField(workingDirTextField, q=True,  text=True)), 'config.xml')
+        # TODO generate config file from configuration parameters
         if not cmds.objExists(target_mesh):
             cmds.confirmDialog(
                 title='Error: Invalid target mesh',
                 message='Specified target mesh \'{}\' does not exist'.format(target_mesh),
                 button='OK')
             return None
-        if not os.path.exists(config_path):
-            cmds.confirmDialog(
-                title='Error: Invalid configuration path',
-                message='Configuration file does not exist or was not specified',
-                button='OK')
-            return None
+        assert os.path.exists(config_path)
         return Proj2Tex(target_mesh, **parse_config(config_path))
 
     def makeProjections(*args):
@@ -416,4 +492,4 @@ def run():
         cmds.button(btn, edit=True, enable=False)
 
     cmds.showWindow(window)
-    cmds.window(window, edit=True, width=250, height=300, sizeable=False)
+    cmds.window(window, edit=True, width=400, height=600, sizeable=False)
