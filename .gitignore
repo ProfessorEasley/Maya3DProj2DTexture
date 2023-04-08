@@ -1,1 +1,5 @@
 .idea
+experiments
+sentinel/*.png
+sentinel/config.xml
+.mayaSwatches
