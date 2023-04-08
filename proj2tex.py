@@ -31,7 +31,10 @@ VERSION = '1.0'
 DIRECTION_FRONT = 'front'
 DIRECTION_BACK = 'back'
 DIRECTION_SIDE = 'side'
-VALID_DIRECTIONS = [DIRECTION_FRONT, DIRECTION_BACK, DIRECTION_SIDE]
+DIRECTION_TOP = 'top'
+DIRECTION_BOTTOM = 'bottom'
+
+VALID_DIRECTIONS = [DIRECTION_FRONT, DIRECTION_BACK, DIRECTION_SIDE, DIRECTION_TOP, DIRECTION_BOTTOM]
 
 class Projection:
     def __init__(self, name: str, direction: str, image_path: str):
@@ -126,15 +129,23 @@ class Proj2Tex:
             if proj.direction == DIRECTION_FRONT:
                 posZ += extZ
                 rotX, rotY, rotZ = 0.0, 0.0, 0.0
-                sclX, sclY, sclZ = extX, extY, 0.0
+                sclX, sclY, sclZ = extX, extY, 1.0
             elif proj.direction == DIRECTION_BACK:
                 posZ -= extZ
                 rotX, rotY, rotZ = 0.0, 180.0, 0.0
-                sclX, sclY, sclZ = extX, extY, 0.0
+                sclX, sclY, sclZ = extX, extY, 1.0
             elif proj.direction == DIRECTION_SIDE:
                 posX += extX
                 rotX, rotY, rotZ = 0.0, 90.0, 0.0
                 sclX, sclY, sclZ = extZ, extY, 1.0
+            elif proj.direction == DIRECTION_TOP:
+                posY += extY
+                rotX, rotY, rotZ = -90.0, 0.0, 0.0
+                sclX, sclY, sclZ = extX, extZ, 1.0
+            elif proj.direction == DIRECTION_BOTTOM:
+                posY -= extY
+                rotX, rotY, rotZ = 90.0, 0.0, 0.0
+                sclX, sclY, sclZ = extX, extZ, 1.0
             else:
                 raise Exception(
                     'unrecognized projection direction \'{}\', valid options are {}'.format(proj.direction, VALID_DIRECTIONS))
@@ -199,7 +210,9 @@ class Proj2Tex:
                 cmds.modelEditor(meditor, edit=True, addSelected=True)
                 cmds.viewFit(scr_cam, fitFactor=0.95)
 
+                cmds.modelEditor(meditor, edit=True, removeSelected=True)
                 cmds.select(self.target_mesh)
+                cmds.modelEditor(meditor, edit=True, addSelected=True)
 
                 view.refresh(False, True)
                 if proj.direction == DIRECTION_FRONT:
@@ -207,15 +220,25 @@ class Proj2Tex:
                     assert unclipped
                     crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymax, (zmin+zmax)/2.0])
                     assert unclipped
+                elif proj.direction == DIRECTION_BACK:
+                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymin, (zmin+zmax)/2.0])
+                    assert unclipped
+                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, ymax, (zmin+zmax)/2.0])
+                    assert unclipped
                 elif proj.direction == DIRECTION_SIDE:
                     crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [(xmin+xmax)/2.0, ymin, zmax])
                     assert unclipped
                     crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [(xmin+xmax)/2.0, ymax, zmin])
                     assert unclipped
-                elif proj.direction == DIRECTION_BACK:
-                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymin, (zmin+zmax)/2.0])
+                elif proj.direction == DIRECTION_TOP:
+                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, (ymin+ymax)/2.0, zmax])
                     assert unclipped
-                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, ymax, (zmin+zmax)/2.0])
+                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, (ymin+ymax)/2.0, zmin])
+                    assert unclipped
+                elif proj.direction == DIRECTION_BOTTOM:
+                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, (ymin+ymax)/2.0, zmin])
+                    assert unclipped
+                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, (ymin+ymax)/2.0, zmax])
                     assert unclipped
                 else:
                     raise Exception('unrecognized projection direction \'{}'.format(proj.direction) + '\', valid options are: {}'.format(proj.direction, VALID_DIRECTIONS))
@@ -457,12 +480,20 @@ def run():
     sideCheckBox = cmds.checkBox(parent=grid, value=True, label='Side')
     sideColorTextField = cmds.textField(parent=grid, text='')
     sideAlphaTextField = cmds.textField(parent=grid, text='sideAlpha.png')
+    topCheckBox = cmds.checkBox(parent=grid, value=False, label='Top')
+    topColorTextField = cmds.textField(parent=grid, text='')
+    topAlphaTextField = cmds.textField(parent=grid, text='')
+    bottomCheckBox = cmds.checkBox(parent=grid, value=False, label='Bottom')
+    bottomColorTextField = cmds.textField(parent=grid, text='')
+    bottomAlphaTextField = cmds.textField(parent=grid, text='')
 
     ProjControl = namedtuple('ProjControl', ['name', 'direction', 'checkBox', 'colorTextField', 'alphaTextField'])
     projControls = [
-        ProjControl('Front', 'front', frontCheckBox, frontColorTextField, frontAlphaTextField),
-        ProjControl('Back', 'back', backCheckBox, backColorTextField, backAlphaTextField),
-        ProjControl('Side', 'side', sideCheckBox, sideColorTextField, sideAlphaTextField)
+        ProjControl('Front', DIRECTION_FRONT, frontCheckBox, frontColorTextField, frontAlphaTextField),
+        ProjControl('Back', DIRECTION_BACK, backCheckBox, backColorTextField, backAlphaTextField),
+        ProjControl('Side', DIRECTION_SIDE, sideCheckBox, sideColorTextField, sideAlphaTextField),
+        ProjControl('Top', DIRECTION_TOP, topCheckBox, topColorTextField, topAlphaTextField),
+        ProjControl('Bottom', DIRECTION_BOTTOM, bottomCheckBox, bottomColorTextField, bottomAlphaTextField)
     ]
 
     row = cmds.rowLayout(parent=configColumn, numberOfColumns=2, columnWidth2=(150, 150), columnAttach2=('both', 'both'))
@@ -594,14 +625,14 @@ def run():
             colorProjSel = cmds.optionMenu(activeLayerControls[numLayers-i-1].colorMenu, q=True, select=True)
             colorProjControls = projControls[colorProjSel-2]
             colorProjName = '{}ColorProj'.format(colorProjControls.name)
-            if len(cmds.textField(colorProjControls.colorTextField, q=True, text=True).strip()) == 0:
+            if not cmds.checkBox(colorProjControls.checkBox, q=True, value=True) or len(cmds.textField(colorProjControls.colorTextField, q=True, text=True).strip()) == 0:
                 raise ConfigGenerationError('Layer {} refers to a non-existent color projection'.format(numLayers-i-1))
             if i < numLayers - 1:
                 alphaProjSel = cmds.optionMenu(activeLayerControls[numLayers-i-2].alphaMenu, q=True, select=True)
                 if alphaProjSel <= 1:
                     raise ConfigGenerationError('All layers, except for the last layer, must have alpha defined')
                 alphaProjControls = projControls[alphaProjSel-2]
-                if len(cmds.textField(alphaProjControls.alphaTextField, q=True, text=True).strip()) == 0:
+                if not cmds.checkBox(alphaProjControls.checkBox, q=True, value=True) or len(cmds.textField(alphaProjControls.alphaTextField, q=True, text=True).strip()) == 0:
                     raise ConfigGenerationError('Layer {} refers to a non-existent alpha projection'.format(numLayers - i - 1))
                 alphaProjName = '{}AlphaProj'.format(alphaProjControls.name)
             else:
