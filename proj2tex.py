@@ -554,12 +554,18 @@ def run():
         # re-interpret alphas as transparency
         for i in range(numLayers):
             colorProjSel = cmds.optionMenu(activeLayerControls[numLayers-i-1].colorMenu, q=True, select=True)
-            colorProjName = '{}ColorProj'.format(projControls[colorProjSel-2].name)
+            colorProjControls = projControls[colorProjSel-2]
+            colorProjName = '{}ColorProj'.format(colorProjControls.name)
+            if len(cmds.textField(colorProjControls.colorTextField, q=True, text=True).strip()) == 0:
+                raise ConfigGenerationError('Layer {} refers to a non-existent color projection'.format(numLayers-i-1))
             if i < numLayers - 1:
                 alphaProjSel = cmds.optionMenu(activeLayerControls[numLayers-i-2].alphaMenu, q=True, select=True)
                 if alphaProjSel <= 1:
                     raise ConfigGenerationError('All layers, except for the last layer, must have alpha defined')
-                alphaProjName = '{}AlphaProj'.format(projControls[alphaProjSel-2].name)
+                alphaProjControls = projControls[alphaProjSel-2]
+                if len(cmds.textField(alphaProjControls.alphaTextField, q=True, text=True).strip()) == 0:
+                    raise ConfigGenerationError('Layer {} refers to a non-existent alpha projection'.format(numLayers - i - 1))
+                alphaProjName = '{}AlphaProj'.format(alphaProjControls.name)
             else:
                 alphaProjName = None
             layer = ET.SubElement(layers, 'layer')
@@ -591,7 +597,7 @@ def run():
             generateConfig()
         except ConfigGenerationError as e:
             cmds.confirmDialog(title='Error: Invalid configuration', message='Configuration is invalid: {}'.format(e))
-            return
+            return None
         configPath = getConfigPath()
         assert configPath is not None
         if not cmds.objExists(targetMesh):
@@ -604,25 +610,39 @@ def run():
         return Proj2Tex(targetMesh, **parse_config(configPath))
 
     def makeProjections(*args):
-        makeP2T().make_projections()
+        p2t = makeP2T()
+        if p2t is not None:
+            p2t.make_projections()
 
     def saveScreenshots(*args):
-        makeP2T().save_screenshots()
+        p2t = makeP2T()
+        if p2t is not None:
+            p2t.save_screenshots()
 
     def makeLayeredShader(*args):
-        makeP2T().make_layered_shader()
+        p2t = makeP2T()
+        if p2t is not None:
+            p2t.make_layered_shader()
 
     def convert(*args):
-        makeP2T().convert()
+        p2t = makeP2T()
+        if p2t is not None:
+            p2t.convert()
 
     def combine(*args):
-        makeP2T().combine()
+        p2t = makeP2T()
+        if p2t is not None:
+            p2t.combine()
 
     def applyToSingleShader(*args):
-        makeP2T().apply_to_single_shader()
+        p2t = makeP2T()
+        if p2t is not None:
+            p2t.apply_to_single_shader()
 
     def reset(*args):
-        makeP2T().clear_nodes()
+        p2t = makeP2T()
+        if p2t is not None:
+            p2t.clear_nodes()
 
     p2tButtons = [
         cmds.button(parent=column, label='1. Make Projections', command=makeProjections),
