@@ -66,7 +66,8 @@ class Layer:
 
 class Proj2Tex:
     def __init__(self, target_mesh: str, projections: list[Projection], layers: list[Layer],
-                 combined_image_path: str, projection_padding=0.1, screenshot_res=(1280, 720), baked_texture_res=(512, 512)):
+                 combined_image_path: str, projection_padding=0.1, screenshot_res=(1280, 720), baked_texture_res=(512, 512),
+                 fill_texture_seams=True):
         self.target_mesh = target_mesh
         self.projections = projections
         self.layers = layers
@@ -74,6 +75,7 @@ class Proj2Tex:
         self.projection_padding = projection_padding
         self.screenshot_res = screenshot_res
         self.baked_texture_res = baked_texture_res
+        self.fill_texture_seams = fill_texture_seams
 
     def _find_projection_by_name(self, name):
         for proj in self.projections:
@@ -299,7 +301,7 @@ class Proj2Tex:
             file_image_name = proj.baked_image_path()
             file_format = os.path.splitext(file_image_name)[1][1:]
             cmds.convertSolidTx(proj.projection() + '.outColor', self.target_mesh,
-                antiAlias=False, backgroundMode=1, fillTextureSeams=True, force=True,
+                antiAlias=False, backgroundMode=1, fillTextureSeams=self.fill_texture_seams, force=True,
                 samplePlane=False, shadows=False, alpha=False, doubleSided=False, componentRange=False,
                 resolutionX=self.baked_texture_res[0], resolutionY=self.baked_texture_res[1],
                 fileFormat=file_format, fileImageName=file_image_name)
@@ -360,9 +362,11 @@ def parse_config(config_path):
     projection_padding_elem = root.find('./projectionPaddingPercentage')
     screenshot_res_elem = root.find('./screenshotResolution')
     baked_tex_res_elem = root.find('./bakedTextureResolution')
+    fill_texture_seams_elem = root.find('./fillTextureSeams')
     config['projection_padding'] = float(projection_padding_elem.text)/100.0
     config['screenshot_res'] = (int(screenshot_res_elem.find('./width').text), int(screenshot_res_elem.find('./height').text))
     config['baked_texture_res'] = (int(baked_tex_res_elem.find('./width').text), int(baked_tex_res_elem.find('./height').text))
+    config['fill_texture_seams'] = fill_texture_seams_elem.text == 'True' if fill_texture_seams_elem is not None else True
     return config
 
 def run():
@@ -537,6 +541,10 @@ def run():
     convertedResWidthTextField = cmds.textField(parent=row, text='512')
     convertedResHeightTextField = cmds.textField(parent=row, text='512')
 
+    row = cmds.rowLayout(parent=configColumn, numberOfColumns=2, columnWidth2=(15, 285), columnAttach2=('both', 'both'))
+    cmds.text(parent=row, label='')
+    fillTextureSeamsCheckbox = cmds.checkBox(parent=row, label='Fill Texture Seams', value=True)
+
     def getOutputDirectory():
         outdir = cmds.textField(outputDirTextField, q=True, text=True)
         if not os.path.exists(outdir):
@@ -593,6 +601,7 @@ def run():
         cmds.textField(screenshotResHeightTextField, edit=True, text=str(cfg['screenshot_res'][1]))
         cmds.textField(convertedResWidthTextField, edit=True, text=str(cfg['baked_texture_res'][0]))
         cmds.textField(convertedResHeightTextField, edit=True, text=str(cfg['baked_texture_res'][1]))
+        cmds.checkBox(fillTextureSeamsCheckbox, edit=True, value=cfg['fill_texture_seams'])
 
     class ConfigGenerationError(Exception):
         pass
@@ -654,6 +663,8 @@ def run():
         bakedTextureResolution = ET.SubElement(proj2tex, 'bakedTextureResolution')
         ET.SubElement(bakedTextureResolution, 'width').text = str(int(cmds.textField(convertedResWidthTextField, q=True, text=True).strip()))
         ET.SubElement(bakedTextureResolution, 'height').text = str(int(cmds.textField(convertedResHeightTextField, q=True, text=True).strip()))
+
+        ET.SubElement(proj2tex, 'fillTextureSeams').text = str(cmds.checkBox(fillTextureSeamsCheckbox, q=True, value=True))
 
         s = ET.tostring(proj2tex, 'utf-8')
         with open(getConfigPath(), 'w') as f:
