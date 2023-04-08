@@ -337,12 +337,9 @@ def parse_config(config_path):
     projection_padding_elem = root.find('./projectionPaddingPercentage')
     screenshot_res_elem = root.find('./screenshotResolution')
     baked_tex_res_elem = root.find('./bakedTextureResolution')
-    if projection_padding_elem is not None:
-        config['projection_padding'] = float(projection_padding_elem.text)/100.0
-    if screenshot_res_elem is not None:
-        config['screenshot_res'] = (int(screenshot_res_elem.find('./width').text), int(screenshot_res_elem.find('./height').text))
-    if baked_tex_res_elem is not None:
-        config['baked_texture_res'] = (int(baked_tex_res_elem.find('./width').text), int(baked_tex_res_elem.find('./height').text))
+    config['projection_padding'] = float(projection_padding_elem.text)/100.0
+    config['screenshot_res'] = (int(screenshot_res_elem.find('./width').text), int(screenshot_res_elem.find('./height').text))
+    config['baked_texture_res'] = (int(baked_tex_res_elem.find('./width').text), int(baked_tex_res_elem.find('./height').text))
     return config
 
 def run():
@@ -522,8 +519,49 @@ def run():
         return os.path.join(outdir, 'config.xml')
 
     def loadConfig():
+        outdir = getOutputDirectory()
         configPath = getConfigPath()
-        pass
+        def relativizePath(path):
+            return os.path.relpath(os.path.abspath(path), outdir)
+        cfg = parse_config(configPath)
+        # load projections
+        for pc in projControls:
+            projPresent = False
+            colorProjName = '{}ColorProj'.format(pc.name)
+            alphaProjName = '{}AlphaProj'.format(pc.name)
+            cmds.textField(pc.colorTextField, edit=True, text='')
+            cmds.textField(pc.alphaTextField, edit=True, text='')
+            for proj in cfg['projections']:
+                if proj.direction == pc.direction:
+                    if proj.name == colorProjName:
+                        projPresent = True
+                        cmds.textField(pc.colorTextField, edit=True, text=relativizePath(proj.image_path))
+                    elif proj.name == alphaProjName:
+                        projPresent = True
+                        cmds.textField(pc.alphaTextField, edit=True, text=relativizePath(proj.image_path))
+            cmds.checkBox(pc.checkBox, edit=True, value=projPresent)
+        # load layers
+        layers = cfg['layers']
+        numLayers = len(layers)
+        for lc in layerControls:
+            cmds.optionMenu(lc.colorMenu, edit=True, select=1)
+            cmds.optionMenu(lc.alphaMenu, edit=True, select=1)
+        for i in range(numLayers):
+            lc = layerControls[i]
+            colorProjName = layers[numLayers-i-1].color_proj_name
+            colorProjSel = [i for i in range(len(projControls)) if '{}ColorProj'.format(projControls[i].name) == colorProjName][0]+2
+            cmds.optionMenu(lc.colorMenu, edit=True, select=colorProjSel)
+            if i < numLayers-1:
+                alphaProjName = layers[numLayers-i-2].transparency_proj_name
+                alphaProjSel = [i for i in range(len(projControls)) if '{}AlphaProj'.format(projControls[i].name) == alphaProjName][0]+2
+                cmds.optionMenu(lc.alphaMenu, edit=True, select=alphaProjSel)
+        # load remaining settings
+        cmds.textField(combinedTextField, edit=True, text=relativizePath(cfg['combined_image_path']))
+        cmds.textField(projectionPaddingTextField, edit=True, text=str(cfg['projection_padding']*100.0))
+        cmds.textField(screenshotResWidthTextField, edit=True, text=str(cfg['screenshot_res'][0]))
+        cmds.textField(screenshotResHeightTextField, edit=True, text=str(cfg['screenshot_res'][1]))
+        cmds.textField(convertedResWidthTextField, edit=True, text=str(cfg['baked_texture_res'][0]))
+        cmds.textField(convertedResHeightTextField, edit=True, text=str(cfg['baked_texture_res'][1]))
 
     class ConfigGenerationError(Exception):
         pass
@@ -576,7 +614,7 @@ def run():
 
         ET.SubElement(proj2tex, 'combinedImagePath').text = cmds.textField(combinedTextField, q=True, text=True)
 
-        ET.SubElement(proj2tex, 'projectionPaddingPercentage').text = str(int(cmds.textField(projectionPaddingTextField, q=True, text=True).strip()))
+        ET.SubElement(proj2tex, 'projectionPaddingPercentage').text = str(float(cmds.textField(projectionPaddingTextField, q=True, text=True).strip()))
 
         screenshotResolution = ET.SubElement(proj2tex, 'screenshotResolution')
         ET.SubElement(screenshotResolution, 'width').text = str(int(cmds.textField(screenshotResWidthTextField, q=True, text=True).strip()))
@@ -596,7 +634,7 @@ def run():
         try:
             generateConfig()
         except ConfigGenerationError as e:
-            cmds.confirmDialog(title='Error: Invalid configuration', message='Configuration is invalid: {}'.format(e))
+            cmds.confirmDialog(title='Error: Invalid configuration', message='Configuration is invalid: {}'.format(e), button='OK')
             return None
         configPath = getConfigPath()
         assert configPath is not None
