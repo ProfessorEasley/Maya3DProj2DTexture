@@ -20,7 +20,9 @@ import os.path
 import math
 import subprocess
 import shutil
+from collections import namedtuple
 import xml.etree.ElementTree as ET
+import xml.dom.minidom as minidom
 
 from typing import Optional
 
@@ -349,14 +351,53 @@ def run():
         cmds.deleteUI(window, window=True)
     cmds.window(window, title='Projection To Texture {}'.format(VERSION), menuBar=True)
 
+    def checkOutputDirectory():
+        configPath = getConfigPath()
+        if configPath is None:
+            cmds.confirmDialog(title='Error: Output directory not specified',
+                               message='A valid Output Directory must be specified before this operation can be performed.',
+                               button='OK')
+            return False
+        else:
+            return True
+
+    def loadConfigMenuItem(*args):
+        if checkOutputDirectory():
+            configPath = getConfigPath()
+            path = cmds.fileDialog2(fileMode=1, caption="Select Configuration File", fileFilter="*.xml")
+            if path is None or len(path) == 0:
+                return
+            path = os.path.abspath(path[0])
+            if os.path.exists(configPath):
+                os.remove(configPath)
+            shutil.copy(path, configPath)
+            loadConfig()
+
+    def saveConfigMenuItem(*args):
+        if checkOutputDirectory():
+            configPath = getConfigPath()
+            savePath = cmds.fileDialog2(fileMode=0, caption='Save Configuration As...', fileFilter='*.xml')
+            if savePath is None or len(savePath) == 0:
+                return
+            savePath = os.path.abspath(savePath[0])
+            try:
+                generateConfig()
+                shutil.copy(configPath, savePath)
+            except ConfigGenerationError as e:
+                cmds.confirmDialog(title='Saving error', label='Error when saving configuration: {}'.format(e))
+
+    fileMenu = cmds.menu(label='File', parent=window)
+    cmds.menuItem(label='Load Configuration', parent=fileMenu, command=loadConfigMenuItem)
+    cmds.menuItem(label='Save Configuration As...', parent=fileMenu, command=saveConfigMenuItem)
+
     def openInstructions(*args):
         cmds.showHelp('https://docs.google.com/document/d/1VQoMDkgJMDK96tKnDrkXo3BrMqFonKYxQL4Dk9eqtLg/edit?usp=sharing', absolute=True)
 
     def openAbout(*args):
         cmds.confirmDialog(
-            title = 'About',
-            message = 'Projection To Texture Script v{}\nWritten by Sasha Volokh (2023)'.format(VERSION),
-            button = 'OK')
+            title='About',
+            message='Projection To Texture Script v{}\nWritten by Sasha Volokh (2023)'.format(VERSION),
+            button='OK')
 
     helpMenu = cmds.menu(label='Help', helpMenu=True, parent=window)
     cmds.menuItem(label='Instructions', parent=helpMenu, command=openInstructions)
@@ -364,10 +405,10 @@ def run():
 
     column = cmds.columnLayout(parent=window, columnWidth=400, columnAttach=('both', 5), rowSpacing=10)
 
-    row = cmds.rowLayout(parent=column, numberOfColumns=3, columnWidth3=(100, 180, 120), columnAttach3=('both', 'both', 'both'))
+    row = cmds.rowLayout(parent=column, numberOfColumns=3, columnWidth3=(100, 180, 130), columnAttach3=('both', 'both', 'both'))
     cmds.text(parent=row, label='Target Mesh:')
     targetMeshTextField = cmds.textField(parent=row)
-    def updateTargetMesh(*args):
+    def useSelectedTargetMesh(*args):
         sel = cmds.ls(selection=True)
         if len(sel) == 0:
             cmds.confirmDialog(title='Error: No selection', message='No object is currently selected', button='OK')
@@ -376,15 +417,31 @@ def run():
             cmds.confirmDialog(title='Error: Ambiguous selection', message='More than one object selected (only the target mesh should be selected)', button='OK')
             return
         cmds.textField(targetMeshTextField, edit=True, text=sel[0])
-    cmds.button(parent=row, label='Update', command=updateTargetMesh)
+    cmds.button(parent=row, label='Use Selected', command=useSelectedTargetMesh)
 
     row = cmds.rowLayout(parent=column, numberOfColumns=3, columnWidth3=(100, 180, 120), columnAttach3=('both', 'both', 'both'))
-    cmds.text(parent=row, label='Working Directory:')
-    workingDirTextField = cmds.textField(parent=row)
-    def browseWorkingDir(*args):
-        # TODO
-        pass
-    cmds.button(parent=row, label='Browse', command=browseWorkingDir)
+    cmds.text(parent=row, label='Output Directory:')
+    outputDirTextField = cmds.textField(parent=row)
+    def browseOutputDir(*args):
+        path = cmds.fileDialog2(fileMode=3, caption='Browse Output Directory...')
+        if path is None or len(path) == 0:
+            return
+        path = path[0]
+        if not os.path.exists(path):
+            cmds.confirmDialog(title='Error: Invalid output directory', message='Specified output directory is not valid or does not exist', button='OK')
+            return
+        path = os.path.abspath(path)
+        cmds.textField(outputDirTextField, edit=True, text=path)
+        if os.path.exists(getConfigPath()):
+            loadConfig()
+            cmds.confirmDialog(title='Loaded Existing Configuration',
+                               message='Loaded existing configuration found at {}'.format(getConfigPath()),
+                               button='OK')
+        for btn in p2tButtons:
+            cmds.button(btn, edit=True, enable=True)
+
+
+    cmds.button(parent=row, label='Browse', command=browseOutputDir)
 
     configFrame = cmds.frameLayout(parent=column, label='Configuration')
     configScroll = cmds.scrollLayout(parent=configFrame, verticalScrollBarThickness=0, horizontalScrollBarThickness=0, height=250)
@@ -404,9 +461,18 @@ def run():
     sideColorTextField = cmds.textField(parent=grid, text='')
     sideAlphaTextField = cmds.textField(parent=grid, text='sideAlpha.png')
 
+    ProjControl = namedtuple('ProjControl', ['name', 'direction', 'checkBox', 'colorTextField', 'alphaTextField'])
+    projControls = [
+        ProjControl('Front', 'front', frontCheckBox, frontColorTextField, frontAlphaTextField),
+        ProjControl('Back', 'back', backCheckBox, backColorTextField, backAlphaTextField),
+        ProjControl('Side', 'side', sideCheckBox, sideColorTextField, sideAlphaTextField)
+    ]
+
     row = cmds.rowLayout(parent=configColumn, numberOfColumns=2, columnWidth2=(150, 150), columnAttach2=('both', 'both'))
     cmds.text(parent=row, label='Projection Padding (%):')
-    cmds.textField(parent=row, text='10')
+    projectionPaddingTextField = cmds.textField(parent=row, text='10')
+
+    LayerControl = namedtuple('LayerControl', ['colorMenu', 'alphaMenu'])
 
     grid = cmds.gridLayout(parent=configColumn, numberOfColumns=3, cellWidth=95)
     cmds.text(parent=grid, label='Layers')
@@ -417,19 +483,17 @@ def run():
     for i in range(maxLayers):
         cmds.text(parent=grid, label='Layer {}'.format(i+1))
         layerColorMenu = cmds.optionMenu(parent=grid)
-        cmds.menuItem(label='')
-        cmds.menuItem(label='Front')
-        cmds.menuItem(label='Back')
-        cmds.menuItem(label='Side')
+        cmds.menuItem(label='', parent=layerColorMenu)
+        for pc in projControls:
+            cmds.menuItem(label=pc.name, parent=layerColorMenu)
         layerAlphaMenu = cmds.optionMenu(parent=grid)
-        cmds.menuItem(label='')
-        cmds.menuItem(label='Front')
-        cmds.menuItem(label='Back')
-        cmds.menuItem(label='Side')
-        layerControls.append((layerColorMenu, layerAlphaMenu))
-    cmds.optionMenu(layerControls[0][0], edit=True, select=2)
-    cmds.optionMenu(layerControls[0][1], edit=True, select=4)
-    cmds.optionMenu(layerControls[1][0], edit=True, select=3)
+        cmds.menuItem(label='', parent=layerAlphaMenu)
+        for pc in projControls:
+            cmds.menuItem(label=pc.name, parent=layerAlphaMenu)
+        layerControls.append(LayerControl(layerColorMenu, layerAlphaMenu))
+    cmds.optionMenu(layerControls[0].colorMenu, edit=True, select=[i for i in range(len(projControls)) if projControls[i].name == 'Front'][0]+2)
+    cmds.optionMenu(layerControls[0].alphaMenu, edit=True, select=[i for i in range(len(projControls)) if projControls[i].name == 'Side'][0]+2)
+    cmds.optionMenu(layerControls[1].colorMenu, edit=True, select=[i for i in range(len(projControls)) if projControls[i].name == 'Back'][0]+2)
 
     row = cmds.rowLayout(parent=configColumn, numberOfColumns=2, columnWidth2=(150, 150), columnAttach2=('both', 'both'))
     cmds.text(parent=row, label='Combined Image Name:')
@@ -445,39 +509,120 @@ def run():
     convertedResWidthTextField = cmds.textField(parent=row, text='512')
     convertedResHeightTextField = cmds.textField(parent=row, text='512')
 
-    def make_p2t():
-        target_mesh = cmds.textField(targetMeshTextField, q=True, text=True)
-        config_path = os.path.join(os.path.abspath(cmds.textField(workingDirTextField, q=True,  text=True)), 'config.xml')
-        # TODO generate config file from configuration parameters
-        if not cmds.objExists(target_mesh):
+    def getOutputDirectory():
+        outdir = cmds.textField(outputDirTextField, q=True, text=True)
+        if not os.path.exists(outdir):
+            return None
+        return os.path.abspath(outdir)
+
+    def getConfigPath():
+        outdir = getOutputDirectory()
+        if outdir is None:
+            return None
+        return os.path.join(outdir, 'config.xml')
+
+    def loadConfig():
+        configPath = getConfigPath()
+        pass
+
+    class ConfigGenerationError(Exception):
+        pass
+
+    def generateConfig():
+        proj2tex = ET.Element('proj2tex')
+
+        projections = ET.SubElement(proj2tex, 'projections')
+        for pc in projControls:
+            if cmds.checkBox(pc.checkBox, q=True, value=True):
+                colorPath = cmds.textField(pc.colorTextField, q=True, text=True).strip()
+                if len(colorPath) > 0:
+                    proj = ET.SubElement(projections, 'projection')
+                    ET.SubElement(proj, 'name').text = '{}ColorProj'.format(pc.name)
+                    ET.SubElement(proj, 'direction').text = pc.direction
+                    ET.SubElement(proj, 'imagePath').text = colorPath
+                alphaPath = cmds.textField(pc.alphaTextField, q=True, text=True).strip()
+                if len(alphaPath) > 0:
+                    proj = ET.SubElement(projections, 'projection')
+                    ET.SubElement(proj, 'name').text = '{}AlphaProj'.format(pc.name)
+                    ET.SubElement(proj, 'direction').text = pc.direction
+                    ET.SubElement(proj, 'imagePath').text = alphaPath
+
+        layers = ET.SubElement(proj2tex, 'layers')
+        activeLayerControls = [lc for lc in layerControls if cmds.optionMenu(lc.colorMenu, q=True, select=True) > 1]
+        numLayers = len(activeLayerControls)
+
+        # re-interpret alphas as transparency
+        for i in range(numLayers):
+            colorProjSel = cmds.optionMenu(activeLayerControls[numLayers-i-1].colorMenu, q=True, select=True)
+            colorProjName = '{}ColorProj'.format(projControls[colorProjSel-2].name)
+            if i < numLayers - 1:
+                alphaProjSel = cmds.optionMenu(activeLayerControls[numLayers-i-2].alphaMenu, q=True, select=True)
+                if alphaProjSel <= 1:
+                    raise ConfigGenerationError('All layers, except for the last layer, must have alpha defined')
+                alphaProjName = '{}AlphaProj'.format(projControls[alphaProjSel-2].name)
+            else:
+                alphaProjName = None
+            layer = ET.SubElement(layers, 'layer')
+            ET.SubElement(layer, 'name').text = 'Layer{}'.format(i+1)
+            ET.SubElement(layer, 'colorProjectionName').text = colorProjName
+            if alphaProjName is not None:
+                ET.SubElement(layer, 'transparencyProjectionName').text = alphaProjName
+
+        ET.SubElement(proj2tex, 'combinedImagePath').text = cmds.textField(combinedTextField, q=True, text=True)
+
+        ET.SubElement(proj2tex, 'projectionPaddingPercentage').text = str(int(cmds.textField(projectionPaddingTextField, q=True, text=True).strip()))
+
+        screenshotResolution = ET.SubElement(proj2tex, 'screenshotResolution')
+        ET.SubElement(screenshotResolution, 'width').text = str(int(cmds.textField(screenshotResWidthTextField, q=True, text=True).strip()))
+        ET.SubElement(screenshotResolution, 'height').text = str(int(cmds.textField(screenshotResHeightTextField, q=True, text=True).strip()))
+
+        bakedTextureResolution = ET.SubElement(proj2tex, 'bakedTextureResolution')
+        ET.SubElement(bakedTextureResolution, 'width').text = str(int(cmds.textField(convertedResWidthTextField, q=True, text=True).strip()))
+        ET.SubElement(bakedTextureResolution, 'height').text = str(int(cmds.textField(convertedResHeightTextField, q=True, text=True).strip()))
+
+        s = ET.tostring(proj2tex, 'utf-8')
+        with open(getConfigPath(), 'w') as f:
+            f.write(minidom.parseString(s).toprettyxml(indent='\t'))
+
+
+    def makeP2T():
+        targetMesh = cmds.textField(targetMeshTextField, q=True, text=True)
+        try:
+            generateConfig()
+        except ConfigGenerationError as e:
+            cmds.confirmDialog(title='Error: Invalid configuration', message='Configuration is invalid: {}'.format(e))
+            return
+        configPath = getConfigPath()
+        assert configPath is not None
+        if not cmds.objExists(targetMesh):
             cmds.confirmDialog(
                 title='Error: Invalid target mesh',
-                message='Specified target mesh \'{}\' does not exist'.format(target_mesh),
+                message='Specified target mesh \'{}\' does not exist'.format(targetMesh),
                 button='OK')
             return None
-        assert os.path.exists(config_path)
-        return Proj2Tex(target_mesh, **parse_config(config_path))
+        assert os.path.exists(configPath)
+        return Proj2Tex(targetMesh, **parse_config(configPath))
 
     def makeProjections(*args):
-        make_p2t().make_projections()
+        makeP2T().make_projections()
 
     def saveScreenshots(*args):
-        make_p2t().save_screenshots()
+        makeP2T().save_screenshots()
 
     def makeLayeredShader(*args):
-        make_p2t().make_layered_shader()
+        makeP2T().make_layered_shader()
 
     def convert(*args):
-        make_p2t().convert()
+        makeP2T().convert()
 
     def combine(*args):
-        make_p2t().combine()
+        makeP2T().combine()
 
     def applyToSingleShader(*args):
-        make_p2t().apply_to_single_shader()
+        makeP2T().apply_to_single_shader()
 
     def reset(*args):
-        make_p2t().clear_nodes()
+        makeP2T().clear_nodes()
 
     p2tButtons = [
         cmds.button(parent=column, label='1. Make Projections', command=makeProjections),
