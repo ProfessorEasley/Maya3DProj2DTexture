@@ -1,0 +1,41 @@
+<?xml version="1.0" ?>
+<proj2tex>
+	<projections>
+		<projection>
+			<name>FrontAlphaProj</name>
+			<direction>front</direction>
+			<imagePath>frontAlpha.png</imagePath>
+		</projection>
+		<projection>
+			<name>TopColorProj</name>
+			<direction>top</direction>
+			<imagePath>top.png</imagePath>
+		</projection>
+		<projection>
+			<name>BottomColorProj</name>
+			<direction>bottom</direction>
+			<imagePath>bottom.png</imagePath>
+		</projection>
+	</projections>
+	<layers>
+		<layer>
+			<name>Layer1</name>
+			<colorProjectionName>BottomColorProj</colorProjectionName>
+			<transparencyProjectionName>FrontAlphaProj</transparencyProjectionName>
+		</layer>
+		<layer>
+			<name>Layer2</name>
+			<colorProjectionName>TopColorProj</colorProjectionName>
+		</layer>
+	</layers>
+	<combinedImagePath>combined.png</combinedImagePath>
+	<projectionPaddingPercentage>10.0</projectionPaddingPercentage>
+	<screenshotResolution>
+		<width>1280</width>
+		<height>720</height>
+	</screenshotResolution>
+	<bakedTextureResolution>
+		<width>512</width>
+		<height>512</height>
+	</bakedTextureResolution>
+</proj2tex>
