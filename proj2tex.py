@@ -206,24 +206,30 @@ class Proj2Tex:
     def save_screenshots(self):
         xmin, ymin, zmin, xmax, ymax, zmax = self.compute_bbox()
         scr_cam = cmds.camera(name='proj_screenshot_cam', orthographic=True)[0]
-        window = cmds.window('proj_screenshot_window')
-        form = cmds.formLayout()
-        meditor = cmds.modelEditor()
         try:
-            cmds.formLayout(form, edit=True, attachForm=[
-                (meditor, 'top', 0),
-                (meditor, 'left', 0),
-                (meditor, 'bottom', 0),
-                (meditor, 'right', 0)
-            ])
-            cmds.showWindow(window)
-            cmds.window(window, edit=True, width=self.screenshot_res[0], height=self.screenshot_res[1])
-            cmds.modelEditor(meditor, edit=True, activeView=True, camera=scr_cam, displayAppearance='wireframe',
-                             headsUpDisplay=False, handles=False, grid=False, manipulators=False, viewSelected=True)
+            # construct the window twice in order to address issues when changing the screenshot size
+            for i in range(2):
+                window = cmds.window('proj_screenshot_window')
+                form = cmds.formLayout(parent=window)
+                meditor = cmds.modelEditor(parent=form)
+                cmds.formLayout(form, edit=True, attachForm=[
+                    (meditor, 'top', 0),
+                    (meditor, 'left', 0),
+                    (meditor, 'bottom', 0),
+                    (meditor, 'right', 0)
+                ])
+                cmds.modelEditor(meditor, edit=True, activeView=True, camera=scr_cam, displayAppearance='wireframe',
+                                 headsUpDisplay=False, handles=False, grid=False, manipulators=False, viewSelected=True)
+                cmds.showWindow(window)
+                cmds.window(window, edit=True, width=self.screenshot_res[0], height=self.screenshot_res[1])
+                if i == 0:
+                    cmds.deleteUI(meditor)
+                    cmds.deleteUI(window)
             view = OpenMayaUI.M3dView()
             OpenMayaUI.M3dView.getM3dViewFromModelEditor(meditor, view)
             viewWidth = view.portWidth()
             viewHeight = view.portHeight()
+            view.refresh(False, True)
             for proj in self.projections:
                 cmds.setAttr(scr_cam + '.rotateX', cmds.getAttr(proj.place3dTexture() + '.rotateX'))
                 cmds.setAttr(scr_cam + '.rotateY', cmds.getAttr(proj.place3dTexture() + '.rotateY'))
