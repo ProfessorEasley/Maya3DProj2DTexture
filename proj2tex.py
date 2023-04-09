@@ -695,14 +695,14 @@ def run():
             colorProjControls = projControls[colorProjSel-2]
             colorProjName = '{}ColorProj'.format(colorProjControls.name)
             if not cmds.checkBox(colorProjControls.checkBox, q=True, value=True) or len(cmds.textField(colorProjControls.colorTextField, q=True, text=True).strip()) == 0:
-                raise ConfigGenerationError('Layer {} refers to a non-existent color projection'.format(numLayers-i-1))
+                raise ConfigGenerationError('Layer {} refers to a non-existent color projection'.format(numLayers-i))
             if i < numLayers - 1:
                 alphaProjSel = cmds.optionMenu(activeLayerControls[numLayers-i-2].alphaMenu, q=True, select=True)
                 if alphaProjSel <= 1:
                     raise ConfigGenerationError('All layers, except for the last layer, must have alpha defined')
                 alphaProjControls = projControls[alphaProjSel-2]
                 if not cmds.checkBox(alphaProjControls.checkBox, q=True, value=True) or len(cmds.textField(alphaProjControls.alphaTextField, q=True, text=True).strip()) == 0:
-                    raise ConfigGenerationError('Layer {} refers to a non-existent alpha projection'.format(numLayers - i - 1))
+                    raise ConfigGenerationError('Layer {} refers to a non-existent alpha projection'.format(numLayers-i-1))
                 alphaProjName = '{}AlphaProj'.format(alphaProjControls.name)
             else:
                 alphaProjName = None
