@@ -1,5 +1,6 @@
 .idea
 experiments
-sentinel/*.png
-sentinel/config.xml
+sentinel
+sentinel_mesh_shaders
+sentinel_separate_mesh_shaders
 .mayaSwatches
