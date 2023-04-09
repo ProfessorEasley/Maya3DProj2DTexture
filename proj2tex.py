@@ -26,7 +26,7 @@ import xml.dom.minidom as minidom
 
 from typing import Optional
 
-VERSION = '1.0'
+VERSION = '1.1'
 
 DIRECTION_FRONT = 'front'
 DIRECTION_BACK = 'back'
@@ -289,7 +289,10 @@ class Proj2Tex:
                                 '{}x{}+{}+{}'.format(ss_crop_xmax - ss_crop_xmin, ss_crop_ymax - ss_crop_ymin, ss_crop_xmin, ss_crop_ymin),
                                 proj.image_path])
 
-                os.remove(tmp_image_path)
+                try:
+                    os.remove(tmp_image_path)
+                except:
+                    print('Warning: Failed to discard temporary screenshot image: {}'.format(tmp_image_path))
 
         finally:
             cmds.deleteUI(meditor)
@@ -365,7 +368,10 @@ class Proj2Tex:
                 shutil.copy(img, combined_img_path)
         finally:
             for path in tmp_images:
-                os.remove(path)
+                try:
+                    os.remove(path)
+                except:
+                    print('Warning: Failed to discard temporary image: {}'.format(path))
 
     def _shader(self, geom):
         return '{}_shader'.format(geom)
