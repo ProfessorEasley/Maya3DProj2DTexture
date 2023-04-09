@@ -459,9 +459,14 @@ def run():
             except ConfigGenerationError as e:
                 cmds.confirmDialog(title='Saving error', label='Error when saving configuration: {}'.format(e))
 
+    def resetConfigToDefault(*args):
+        cmds.deleteUI(window, window=True)
+        run()
+
     fileMenu = cmds.menu(label='File', parent=window)
     cmds.menuItem(label='Load Configuration', parent=fileMenu, command=loadConfigMenuItem)
     cmds.menuItem(label='Save Configuration As...', parent=fileMenu, command=saveConfigMenuItem)
+    cmds.menuItem(label='Reset Configuration To Default', parent=fileMenu, command=resetConfigToDefault)
 
     def openInstructions(*args):
         cmds.showHelp('https://docs.google.com/document/d/1VQoMDkgJMDK96tKnDrkXo3BrMqFonKYxQL4Dk9eqtLg/edit?usp=sharing', absolute=True)
