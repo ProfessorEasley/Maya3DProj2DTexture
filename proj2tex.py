@@ -51,9 +51,9 @@ class Projection:
     def file(self):
         return 'projFile_{}'.format(self.name)
 
-    def baked_image_path(self):
+    def baked_image_path(self, geom):
         file_format = os.path.splitext(self.image_path)[1][1:]
-        return os.path.splitext(self.image_path)[0] + '_baked.{}'.format(file_format)
+        return os.path.splitext(self.image_path)[0] + '_baked_{}.{}'.format(geom, file_format)
 
 class Layer:
     def __init__(self, name: str, color_proj_name: str, transparency_proj_name: Optional[str]):
@@ -65,10 +65,10 @@ class Layer:
         return 'layerMat_{}'.format(self.name)
 
 class Proj2Tex:
-    def __init__(self, target_mesh: str, projections: list[Projection], layers: list[Layer],
+    def __init__(self, targets: set[str], projections: list[Projection], layers: list[Layer],
                  combined_image_path: str, projection_padding=0.1, screenshot_res=(1280, 720), baked_texture_res=(512, 512),
                  fill_texture_seams=True):
-        self.target_mesh = target_mesh
+        self.targets = targets
         self.projections = projections
         self.layers = layers
         self.combined_image_path = combined_image_path
@@ -102,10 +102,11 @@ class Proj2Tex:
     def clear_nodes(self):
         self._clear_projections()
         self._clear_layered_shader()
-        if cmds.objExists(self._single_shader()):
-            cmds.delete(self._single_shader())
-        if cmds.objExists(self._single_shader_file()):
-            cmds.delete(self._single_shader_file())
+        for geom in self._get_all_target_geometry():
+            if cmds.objExists(self._shader(geom)):
+                cmds.delete(self._shader(geom))
+            if cmds.objExists(self._shader_file(geom)):
+                cmds.delete(self._shader_file(geom))
 
     def _configure_lambert_material(self, mat):
         cmds.setAttr(mat + '.diffuse', 1.0)
@@ -113,8 +114,32 @@ class Proj2Tex:
         cmds.setAttr(mat + '.translucenceDepth', 0.0)
         cmds.setAttr(mat + '.translucenceFocus', 0.0)
 
+    @staticmethod
+    def is_target_shader(target):
+        return cmds.getClassification(cmds.objectType(target), satisfies='shader')
+
+    @staticmethod
+    def get_target_geometry(target):
+        if Proj2Tex.is_target_shader(target):
+            conns = cmds.listConnections(target, d=True, s=False, type='shadingEngine')
+            if len(conns) == 0:
+                return None
+            sg = conns[0]
+            for conn in cmds.listConnections(sg):
+                cls = cmds.getClassification(cmds.objectType(conn))
+                if len(cls) == 1 and 'geometry' in cls[0]:
+                    return conn
+        else:
+            return target
+
+    def _get_all_target_geometry(self):
+        geom = set()
+        for target in self.targets:
+            geom.add(Proj2Tex.get_target_geometry(target))
+        return list(geom)
+
     def compute_bbox(self):
-        xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self.target_mesh, calculateExactly=True)
+        xmin, ymin, zmin, xmax, ymax, zmax = cmds.exactWorldBoundingBox(self._get_all_target_geometry(), calculateExactly=True)
         padding = self.projection_padding*math.sqrt((xmax - xmin)**2 + (ymax - ymin)**2 + (zmax - zmin)**2)
         xc, yc, zc = (xmin + xmax)/2.0, (ymin + ymax)/2.0, (zmin + zmax)/2.0
         extX, extY, extZ = (xmax - xmin)/2.0, (ymax - ymin)/2.0, (zmax - zmin)/2.0
@@ -207,14 +232,15 @@ class Proj2Tex:
                 cmds.select(all=True)
                 cmds.modelEditor(meditor, edit=True, removeSelected=True)
 
-                cmds.select(self.target_mesh)
+                cmds.select(self._get_all_target_geometry())
                 cmds.select(proj.place3dTexture(), add=True)
                 cmds.modelEditor(meditor, edit=True, addSelected=True)
                 cmds.viewFit(scr_cam, fitFactor=0.95)
 
                 cmds.modelEditor(meditor, edit=True, removeSelected=True)
-                cmds.select(self.target_mesh)
+                cmds.select(self._get_all_target_geometry())
                 cmds.modelEditor(meditor, edit=True, addSelected=True)
+                cmds.select(clear=True)
 
                 view.refresh(False, True)
                 if proj.direction == DIRECTION_FRONT:
@@ -265,13 +291,7 @@ class Proj2Tex:
             cmds.delete(scr_cam)
 
     def _layered_shader(self):
-        return '{}_layered_material'.format(self.target_mesh)
-
-    def _single_shader(self):
-        return '{}_material'.format(self.target_mesh)
-
-    def _single_shader_file(self):
-        return '{}_file'.format(self.target_mesh)
+        return 'layered_shader{}'.format(hash(frozenset(self._get_all_target_geometry())) % 100000)
 
     def make_layered_shader(self):
         for proj in self.projections:
@@ -292,49 +312,78 @@ class Proj2Tex:
             layer_mat = l.layer_material()
             cmds.connectAttr(layer_mat + '.outColor', self._layered_shader() + '.inputs[{}].color'.format(index), f=True)
             cmds.connectAttr(layer_mat + '.outTransparency', self._layered_shader() + '.inputs[{}].transparency'.format(index), f=True)
-        cmds.select(self.target_mesh)
-        cmds.hyperShade(assign=self._layered_shader())
+        for target in self.targets:
+            if Proj2Tex.is_target_shader(target):
+                cmds.connectAttr('{}.outColor'.format(self._layered_shader()), '{}.color'.format(target))
+            else:
+                cmds.select(target)
+                cmds.hyperShade(assign=self._layered_shader())
 
     def convert(self):
         self._clear_layered_shader()
+        all_geom = self._get_all_target_geometry()
         for proj in self.projections:
-            file_image_name = proj.baked_image_path()
-            file_format = os.path.splitext(file_image_name)[1][1:]
-            cmds.convertSolidTx(proj.projection() + '.outColor', self.target_mesh,
-                antiAlias=False, backgroundMode=1, fillTextureSeams=self.fill_texture_seams, force=True,
-                samplePlane=False, shadows=False, alpha=False, doubleSided=False, componentRange=False,
-                resolutionX=self.baked_texture_res[0], resolutionY=self.baked_texture_res[1],
-                fileFormat=file_format, fileImageName=file_image_name)
+            for geom in all_geom:
+                file_image_name = proj.baked_image_path(geom)
+                file_format = os.path.splitext(file_image_name)[1][1:]
+                cmds.convertSolidTx(proj.projection() + '.outColor', geom,
+                    antiAlias=False, backgroundMode=1, fillTextureSeams=self.fill_texture_seams, force=True,
+                    samplePlane=False, shadows=False, alpha=False, doubleSided=False, componentRange=False,
+                    resolutionX=self.baked_texture_res[0], resolutionY=self.baked_texture_res[1],
+                    fileFormat=file_format, fileImageName=file_image_name)
+
+    def _combined_image_path(self, geom):
+        file_fmt = os.path.splitext(self.combined_image_path)[1][1:]
+        return os.path.splitext(self.combined_image_path)[0] + '_{}.{}'.format(geom, file_fmt)
 
     def combine(self):
         tmp_images = []
         try:
-            file_fmt = os.path.splitext(self.combined_image_path)[1][1:]
-            img = self._find_projection_by_name(self.layers[len(self.layers)-1].color_proj_name).baked_image_path()
-            for i in range(len(self.layers)-2, -1, -1):
-                l = self.layers[i]
-                color_img = self._find_projection_by_name(l.color_proj_name).baked_image_path()
-                if l.transparency_proj_name is None:
-                    img = color_img
-                else:
-                    transp_img = self._find_projection_by_name(l.transparency_proj_name).baked_image_path()
-                    output_path = os.path.splitext(self.combined_image_path)[0] + '.tmp{}.'.format(i) + file_fmt
-                    subprocess.run(['magick', 'convert', '-composite', color_img, img, transp_img, output_path])
-                    tmp_images.append(output_path)
-                    img = output_path
-            shutil.copy(img, self.combined_image_path)
+            for geom in self._get_all_target_geometry():
+                combined_img_path = self._combined_image_path(geom)
+                file_fmt = os.path.splitext(combined_img_path)[1][1:]
+                img = self._find_projection_by_name(self.layers[len(self.layers)-1].color_proj_name).baked_image_path(geom)
+                for i in range(len(self.layers)-2, -1, -1):
+                    l = self.layers[i]
+                    color_img = self._find_projection_by_name(l.color_proj_name).baked_image_path(geom)
+                    if l.transparency_proj_name is None:
+                        img = color_img
+                    else:
+                        transp_img = self._find_projection_by_name(l.transparency_proj_name).baked_image_path(geom)
+                        output_path = os.path.splitext(combined_img_path)[0] + '.tmp{}.'.format(i) + file_fmt
+                        subprocess.run(['magick', 'convert', '-composite', color_img, img, transp_img, output_path])
+                        tmp_images.append(output_path)
+                        img = output_path
+                shutil.copy(img, combined_img_path)
         finally:
             for path in tmp_images:
                 os.remove(path)
 
-    def apply_to_single_shader(self):
-        cmds.shadingNode('lambert', name=self._single_shader(), asShader=True)
-        self._configure_lambert_material(self._single_shader())
-        cmds.shadingNode('file', name=self._single_shader_file(), asTexture=True, isColorManaged=True)
-        cmds.setAttr(self._single_shader_file() + '.fileTextureName', self.combined_image_path, type='string')
-        cmds.connectAttr(self._single_shader_file() + '.outColor', self._single_shader() + '.color', f=True)
-        cmds.select(self.target_mesh)
-        cmds.hyperShade(assign=self._single_shader())
+    def _shader(self, geom):
+        return '{}_shader'.format(geom)
+
+    def _shader_file(self, geom):
+        return '{}_file'.format(geom)
+
+    def apply_to_shaders(self):
+        for geom in self._get_all_target_geometry():
+            cmds.shadingNode('file', name=self._shader_file(geom), asTexture=True, isColorManaged=True)
+            cmds.setAttr(self._shader_file(geom) + '.fileTextureName', self._combined_image_path(geom), type='string')
+            shader_created = False
+            for target in self.targets:
+                if Proj2Tex.get_target_geometry(target) == geom:
+                    if Proj2Tex.is_target_shader(target):
+                        tgt_shader = target
+                    else:
+                        if not shader_created:
+                            cmds.shadingNode('lambert', name=self._shader(geom), asShader=True)
+                            self._configure_lambert_material(self._shader(geom))
+                            shader_created = True
+                        tgt_shader = self._shader(geom)
+                    cmds.connectAttr(self._shader_file(geom) + '.outColor', tgt_shader + '.color', f=True)
+            if shader_created:
+                cmds.select(geom)
+                cmds.hyperShade(assign=self._shader(geom))
         self._clear_projections()
 
 def parse_config(config_path):
@@ -429,19 +478,26 @@ def run():
 
     column = cmds.columnLayout(parent=window, columnWidth=400, columnAttach=('both', 5), rowSpacing=10)
 
-    row = cmds.rowLayout(parent=column, numberOfColumns=3, columnWidth3=(100, 180, 130), columnAttach3=('both', 'both', 'both'))
-    cmds.text(parent=row, label='Target Mesh:')
-    targetMeshTextField = cmds.textField(parent=row)
-    def useSelectedTargetMesh(*args):
+    cmds.text(parent=column, label='Target Meshes or Shaders:')
+    row = cmds.rowLayout(parent=column, numberOfColumns=2, columnWidth2=(285, 100), columnAttach2=('both', 'both'))
+    targetsTextField = cmds.textField(parent=row)
+
+    def getTargets():
+        return list(
+            filter(lambda s: len(s) > 0,
+                map(lambda s: s.strip(), cmds.textField(targetsTextField, q=True, text=True).split(','))))
+
+    def addSelectedAsTargets(*args):
         sel = cmds.ls(selection=True)
         if len(sel) == 0:
             cmds.confirmDialog(title='Error: No selection', message='No object is currently selected', button='OK')
             return
-        elif len(sel) > 1:
-            cmds.confirmDialog(title='Error: Ambiguous selection', message='More than one object selected (only the target mesh should be selected)', button='OK')
-            return
-        cmds.textField(targetMeshTextField, edit=True, text=sel[0])
-    cmds.button(parent=row, label='Use Selected', command=useSelectedTargetMesh)
+        targets = getTargets()
+        for obj in sel:
+            if obj not in targets:
+                targets.append(obj)
+        cmds.textField(targetsTextField, edit=True, text=', '.join(targets))
+    cmds.button(parent=row, label='Add Selected', command=addSelectedAsTargets)
 
     row = cmds.rowLayout(parent=column, numberOfColumns=3, columnWidth3=(100, 180, 120), columnAttach3=('both', 'both', 'both'))
     cmds.text(parent=row, label='Output Directory:')
@@ -463,7 +519,6 @@ def run():
                                button='OK')
         for btn in p2tButtons:
             cmds.button(btn, edit=True, enable=True)
-
 
     cmds.button(parent=row, label='Browse', command=browseOutputDir)
 
@@ -672,7 +727,20 @@ def run():
 
 
     def makeP2T():
-        targetMesh = cmds.textField(targetMeshTextField, q=True, text=True)
+        targets = set(getTargets())
+        if len(targets) == 0:
+            cmds.confirmDialog(title='Error: Invalid target', message='At least one target must be specified', button='OK')
+            return None
+        for tgt in targets:
+            if not cmds.objExists(tgt):
+                cmds.confirmDialog(title='Error: Invalid target', message='Specified target \'{}\' does not exist'.format(tgt), button='OK')
+                return None
+            if Proj2Tex.get_target_geometry(tgt) is None:
+                cmds.confirmDialog(title='Error: Shader not associated with geometry', message='Target shader \'{}\' is not currently assigned to any object'.format(tgt), button='OK')
+                return None
+        if getOutputDirectory() is None:
+            cmds.confirmDialog(title='Error: Invalid output directory', message='Invalid output directory specified', button='OK')
+            return None
         try:
             generateConfig()
         except ConfigGenerationError as e:
@@ -680,14 +748,8 @@ def run():
             return None
         configPath = getConfigPath()
         assert configPath is not None
-        if not cmds.objExists(targetMesh):
-            cmds.confirmDialog(
-                title='Error: Invalid target mesh',
-                message='Specified target mesh \'{}\' does not exist'.format(targetMesh),
-                button='OK')
-            return None
         assert os.path.exists(configPath)
-        return Proj2Tex(targetMesh, **parse_config(configPath))
+        return Proj2Tex(targets, **parse_config(configPath))
 
     def makeProjections(*args):
         p2t = makeP2T()
@@ -714,10 +776,10 @@ def run():
         if p2t is not None:
             p2t.combine()
 
-    def applyToSingleShader(*args):
+    def applyToShaders(*args):
         p2t = makeP2T()
         if p2t is not None:
-            p2t.apply_to_single_shader()
+            p2t.apply_to_shaders()
 
     def reset(*args):
         p2t = makeP2T()
@@ -730,11 +792,11 @@ def run():
         cmds.button(parent=column, label='3. Make Layered Shader', command=makeLayeredShader),
         cmds.button(parent=column, label='4. Convert Projections To Textures', command=convert),
         cmds.button(parent=column, label='5. Combine Textures', command=combine),
-        cmds.button(parent=column, label='6. Apply To Single Shader', command=applyToSingleShader),
+        cmds.button(parent=column, label='6. Apply To Shaders', command=applyToShaders),
         cmds.button(parent=column, label='Reset', command=reset)
     ]
     for btn in p2tButtons:
         cmds.button(btn, edit=True, enable=False)
 
     cmds.showWindow(window)
-    cmds.window(window, edit=True, width=400, height=600, sizeable=False)
+    cmds.window(window, edit=True, width=400, height=650, sizeable=False)
