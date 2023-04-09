@@ -297,6 +297,8 @@ class Proj2Tex:
         for proj in self.projections:
             cmds.shadingNode('file', name=proj.file(), asTexture=True, isColorManaged=True)
             cmds.setAttr(proj.file() + '.fileTextureName', proj.image_path, type='string')
+            if not os.path.exists(proj.image_path):
+                cmds.confirmDialog(title='Error: Projection image not found', message='The image \'{}\' does not exist'.format(proj.image_path), button='OK')
             cmds.connectAttr(proj.file() + '.outColor', proj.projection() + '.image', f=True)
         cmds.shadingNode('layeredShader', name=self._layered_shader(), asShader=True)
         cmds.setAttr(self._layered_shader() + '.compositingFlag', 1)
