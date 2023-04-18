@@ -26,7 +26,7 @@ import xml.dom.minidom as minidom
 
 from typing import Optional
 
-VERSION = '1.1'
+VERSION = '1.2'
 
 DIRECTION_FRONT = 'front'
 DIRECTION_BACK = 'back'
@@ -482,6 +482,9 @@ def run():
     cmds.menuItem(label='Save Configuration As...', parent=fileMenu, command=saveConfigMenuItem)
     cmds.menuItem(label='Reset Configuration To Default', parent=fileMenu, command=resetConfigToDefault)
 
+    def openYouTubeTutorial(*args):
+        cmds.showHelp('https://www.youtube.com/watch?v=VCAxwzO7qOM', absolute=True)
+
     def openInstructions(*args):
         cmds.showHelp('https://docs.google.com/document/d/1VQoMDkgJMDK96tKnDrkXo3BrMqFonKYxQL4Dk9eqtLg/edit?usp=sharing', absolute=True)
 
@@ -492,7 +495,8 @@ def run():
             button='OK')
 
     helpMenu = cmds.menu(label='Help', helpMenu=True, parent=window)
-    cmds.menuItem(label='Instructions', parent=helpMenu, command=openInstructions)
+    cmds.menuItem(label='YouTube Tutorial', parent=helpMenu, command=openYouTubeTutorial)
+    cmds.menuItem(label='Documentation', parent=helpMenu, command=openInstructions)
     cmds.menuItem(label='About', parent=helpMenu, command=openAbout)
 
     column = cmds.columnLayout(parent=window, columnWidth=400, columnAttach=('both', 5), rowSpacing=10)
