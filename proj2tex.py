@@ -212,7 +212,7 @@ class Proj2Tex:
                 def either(c):
                     return '[%s%s]' % (c.lower(), c.upper()) if c.isalpha() else c
                 return glob.glob(''.join(map(either, pattern)))
-            magick_install = iglob(os.path.join(d, 'imagemagick*'))
+            magick_install = list(filter(os.path.isdir, iglob(os.path.join(d, 'imagemagick*'))))
             if len(magick_install) > 0:
                 env = {
                     'MAGICK_HOME': magick_install[0],
