@@ -20,6 +20,7 @@ import os.path
 import math
 import subprocess
 import shutil
+import glob
 from collections import namedtuple
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
@@ -201,12 +202,28 @@ class Proj2Tex:
         else:
             return None, None, False
 
-    def _magick_path(self):
-        macos_path = '/usr/local/bin/magick'
-        if os.path.exists(macos_path):
-            return macos_path
-        else:
-            return 'magick'
+    def _find_magick(self):
+        try:
+            subprocess.run(['magick'])
+            return 'magick', dict()
+        except FileNotFoundError:
+            d = os.path.dirname(__file__)
+            def iglob(pattern):
+                def either(c):
+                    return '[%s%s]' % (c.lower(), c.upper()) if c.isalpha() else c
+                return glob.glob(''.join(map(either, pattern)))
+            magick_install = iglob(os.path.join(d, 'imagemagick*'))
+            if len(magick_install) > 0:
+                env = {
+                    'MAGICK_HOME': magick_install[0],
+                    'DYLD_LIBRARY_PATH': os.path.join(magick_install[0], 'lib')
+                }
+                return os.path.join(magick_install[0], 'bin', 'magick'), env
+            else:
+                cmds.confirmDialog(title='Error: Cannot find ImageMagick',
+                        message='A valid ImageMagick could not be found: please download the archive from the website and extract it next to the script.',
+                        button='OK')
+                raise Exception('ImageMagick not found')
 
     def save_screenshots(self):
         xmin, ymin, zmin, xmax, ymax, zmax = self.compute_bbox()
@@ -290,9 +307,10 @@ class Proj2Tex:
                 ss_crop_xmax = crop_xmax
                 ss_crop_ymax = viewHeight - crop_ymin - 1
 
-                subprocess.run([self._magick_path(), 'convert', tmp_image_path, '-crop',
+                magick, magick_env = self._find_magick() 
+                subprocess.run([magick, 'convert', tmp_image_path, '-crop',
                                 '{}x{}+{}+{}'.format(ss_crop_xmax - ss_crop_xmin, ss_crop_ymax - ss_crop_ymin, ss_crop_xmin, ss_crop_ymin),
-                                proj.image_path])
+                                proj.image_path], env={**os.environ, **magick_env}, check=True)
 
                 try:
                     os.remove(tmp_image_path)
@@ -367,7 +385,8 @@ class Proj2Tex:
                     else:
                         transp_img = self._find_projection_by_name(l.transparency_proj_name).baked_image_path(geom)
                         output_path = os.path.splitext(combined_img_path)[0] + '.tmp{}.'.format(i) + file_fmt
-                        subprocess.run([self._magick_path(), 'convert', '-composite', color_img, img, transp_img, output_path])
+                        magick, magick_env = self._find_magick()
+                        subprocess.run([magick, 'convert', '-composite', color_img, img, transp_img, output_path], check=True, env={**os.environ, **magick_env})
                         tmp_images.append(output_path)
                         img = output_path
                 shutil.copy(img, combined_img_path)
