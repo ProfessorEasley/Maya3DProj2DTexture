@@ -24,9 +24,7 @@ from collections import namedtuple
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
 
-from typing import Optional
-
-VERSION = '1.2'
+VERSION = '1.3'
 
 DIRECTION_FRONT = 'front'
 DIRECTION_BACK = 'back'
@@ -37,7 +35,7 @@ DIRECTION_BOTTOM = 'bottom'
 VALID_DIRECTIONS = [DIRECTION_FRONT, DIRECTION_BACK, DIRECTION_SIDE, DIRECTION_TOP, DIRECTION_BOTTOM]
 
 class Projection:
-    def __init__(self, name: str, direction: str, image_path: str):
+    def __init__(self, name, direction, image_path):
         self.name = name
         self.direction = direction
         self.image_path = image_path
@@ -56,7 +54,7 @@ class Projection:
         return os.path.splitext(self.image_path)[0] + '_baked_{}.{}'.format(geom, file_format)
 
 class Layer:
-    def __init__(self, name: str, color_proj_name: str, transparency_proj_name: Optional[str]):
+    def __init__(self, name, color_proj_name, transparency_proj_name):
         self.name = name
         self.color_proj_name = color_proj_name
         self.transparency_proj_name = transparency_proj_name
@@ -65,8 +63,8 @@ class Layer:
         return 'layerMat_{}'.format(self.name)
 
 class Proj2Tex:
-    def __init__(self, targets: set[str], projections: list[Projection], layers: list[Layer],
-                 combined_image_path: str, projection_padding=0.1, screenshot_res=(1280, 720), baked_texture_res=(512, 512),
+    def __init__(self, targets, projections, layers,
+                 combined_image_path, projection_padding=0.1, screenshot_res=(1280, 720), baked_texture_res=(512, 512),
                  fill_texture_seams=True):
         self.targets = targets
         self.projections = projections
@@ -203,6 +201,13 @@ class Proj2Tex:
         else:
             return None, None, False
 
+    def _magick_path(self):
+        macos_path = '/usr/local/bin/magick'
+        if os.path.exists(macos_path):
+            return macos_path
+        else:
+            return 'magick'
+
     def save_screenshots(self):
         xmin, ymin, zmin, xmax, ymax, zmax = self.compute_bbox()
         scr_cam = cmds.camera(name='proj_screenshot_cam', orthographic=True)[0]
@@ -285,7 +290,7 @@ class Proj2Tex:
                 ss_crop_xmax = crop_xmax
                 ss_crop_ymax = viewHeight - crop_ymin - 1
 
-                subprocess.run(['magick', 'convert', tmp_image_path, '-crop',
+                subprocess.run([self._magick_path(), 'convert', tmp_image_path, '-crop',
                                 '{}x{}+{}+{}'.format(ss_crop_xmax - ss_crop_xmin, ss_crop_ymax - ss_crop_ymin, ss_crop_xmin, ss_crop_ymin),
                                 proj.image_path])
 
@@ -362,7 +367,7 @@ class Proj2Tex:
                     else:
                         transp_img = self._find_projection_by_name(l.transparency_proj_name).baked_image_path(geom)
                         output_path = os.path.splitext(combined_img_path)[0] + '.tmp{}.'.format(i) + file_fmt
-                        subprocess.run(['magick', 'convert', '-composite', color_img, img, transp_img, output_path])
+                        subprocess.run([self._magick_path(), 'convert', '-composite', color_img, img, transp_img, output_path])
                         tmp_images.append(output_path)
                         img = output_path
                 shutil.copy(img, combined_img_path)
