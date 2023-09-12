@@ -25,7 +25,7 @@ from collections import namedtuple
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
 
-VERSION = '1.3'
+VERSION = '1.4'
 
 DIRECTION_FRONT = 'front'
 DIRECTION_BACK = 'back'
@@ -65,7 +65,7 @@ class Layer:
 
 class Proj2Tex:
     def __init__(self, targets, projections, layers,
-                 combined_image_path, projection_padding=0.1, screenshot_res=(1280, 720), baked_texture_res=(512, 512),
+                 combined_image_path, projection_padding=0.1, screenshot_res=512, baked_texture_res=(512, 512),
                  fill_texture_seams=True):
         self.targets = targets
         self.projections = projections
@@ -202,6 +202,18 @@ class Proj2Tex:
         else:
             return None, None, False
 
+    @staticmethod
+    def _get_max_window_size():
+        n = OpenMayaUI.M3dView.numberOf3dViews()
+        max_width = 0
+        max_height = 0
+        for i in range(n):
+            view = OpenMayaUI.M3dView()
+            OpenMayaUI.M3dView.get3dView(i, view)
+            max_width = max(max_width, view.portWidth())
+            max_height = max(max_height, view.portHeight())
+        return max_width, max_height
+
     def _find_magick(self):
         try:
             subprocess.run(['magick'])
@@ -226,6 +238,10 @@ class Proj2Tex:
                 raise Exception('ImageMagick not found')
 
     def save_screenshots(self):
+        max_window_w, max_window_h = Proj2Tex._get_max_window_size()
+        max_res = min(max_window_w, max_window_h)
+        window_width = min(max_res, self.screenshot_res)
+        window_height = window_width
         xmin, ymin, zmin, xmax, ymax, zmax = self.compute_bbox()
         scr_cam = cmds.camera(name='proj_screenshot_cam', orthographic=True)[0]
         try:
@@ -243,7 +259,7 @@ class Proj2Tex:
                 cmds.modelEditor(meditor, edit=True, activeView=True, camera=scr_cam, displayAppearance='wireframe',
                                  headsUpDisplay=False, handles=False, grid=False, manipulators=False, viewSelected=True)
                 cmds.showWindow(window)
-                cmds.window(window, edit=True, width=self.screenshot_res[0], height=self.screenshot_res[1])
+                cmds.window(window, edit=True, width=window_width, height=window_height)
                 if i == 0:
                     cmds.deleteUI(meditor)
                     cmds.deleteUI(window)
@@ -259,6 +275,7 @@ class Proj2Tex:
 
                 cmds.select(all=True)
                 cmds.modelEditor(meditor, edit=True, removeSelected=True)
+                view.refresh(False, True)
 
                 cmds.select(self._get_all_target_geometry())
                 cmds.select(proj.place3dTexture(), add=True)
@@ -269,6 +286,12 @@ class Proj2Tex:
                 cmds.select(self._get_all_target_geometry())
                 cmds.modelEditor(meditor, edit=True, addSelected=True)
                 cmds.select(clear=True)
+
+                cmds.playblast(filename=proj.image_path + '.tmp', startTime=1, endTime=1, viewer=False, format='image',
+                               offScreen=True, compression=os.path.splitext(proj.image_path)[1][1:],
+                               editorPanelName=meditor, width=self.screenshot_res, height=self.screenshot_res,
+                               p=100, forceOverwrite=True)
+                tmp_image_path = proj.image_path + '.tmp.0001' + os.path.splitext(proj.image_path)[1]
 
                 view.refresh(False, True)
                 if proj.direction == DIRECTION_FRONT:
@@ -299,13 +322,10 @@ class Proj2Tex:
                 else:
                     raise Exception('unrecognized projection direction \'{}'.format(proj.direction) + '\', valid options are: {}'.format(proj.direction, VALID_DIRECTIONS))
 
-                tmp_image_path = proj.image_path + '.tmp' + os.path.splitext(proj.image_path)[1]
-                cmds.refresh(fileExtension='png', filename=tmp_image_path)
-
-                ss_crop_xmin = crop_xmin
-                ss_crop_ymin = viewHeight - crop_ymax - 1
-                ss_crop_xmax = crop_xmax
-                ss_crop_ymax = viewHeight - crop_ymin - 1
+                ss_crop_xmin = crop_xmin/viewWidth * self.screenshot_res
+                ss_crop_ymin = (viewHeight - crop_ymax - 1)/viewHeight * self.screenshot_res
+                ss_crop_xmax = crop_xmax/viewWidth * self.screenshot_res
+                ss_crop_ymax = (viewHeight - crop_ymin - 1)/viewHeight * self.screenshot_res
 
                 magick, magick_env = self._find_magick() 
                 subprocess.run([magick, 'convert', tmp_image_path, '-crop',
@@ -451,7 +471,7 @@ def parse_config(config_path):
     baked_tex_res_elem = root.find('./bakedTextureResolution')
     fill_texture_seams_elem = root.find('./fillTextureSeams')
     config['projection_padding'] = float(projection_padding_elem.text)/100.0
-    config['screenshot_res'] = (int(screenshot_res_elem.find('./width').text), int(screenshot_res_elem.find('./height').text))
+    config['screenshot_res'] = int(screenshot_res_elem.find('./width').text)
     config['baked_texture_res'] = (int(baked_tex_res_elem.find('./width').text), int(baked_tex_res_elem.find('./height').text))
     config['fill_texture_seams'] = fill_texture_seams_elem.text == 'True' if fill_texture_seams_elem is not None else True
     return config
@@ -635,8 +655,7 @@ def run():
 
     row = cmds.rowLayout(parent=configColumn, numberOfColumns=3, columnWidth3=(150, 75, 75), columnAttach3=('both', 'both', 'both'))
     cmds.text(parent=row, label='Screenshot Resolution:')
-    screenshotResWidthTextField = cmds.textField(parent=row, text='1280')
-    screenshotResHeightTextField = cmds.textField(parent=row, text='720')
+    screenshotResTextField = cmds.textField(parent=row, text='512')
 
     row = cmds.rowLayout(parent=configColumn, numberOfColumns=3, columnWidth3=(150, 75, 75), columnAttach3=('both', 'both', 'both'))
     cmds.text(parent=row, label='Converted Resolution:')
@@ -699,8 +718,7 @@ def run():
         # load remaining settings
         cmds.textField(combinedTextField, edit=True, text=relativizePath(cfg['combined_image_path']))
         cmds.textField(projectionPaddingTextField, edit=True, text=str(cfg['projection_padding']*100.0))
-        cmds.textField(screenshotResWidthTextField, edit=True, text=str(cfg['screenshot_res'][0]))
-        cmds.textField(screenshotResHeightTextField, edit=True, text=str(cfg['screenshot_res'][1]))
+        cmds.textField(screenshotResTextField, edit=True, text=str(cfg['screenshot_res']))
         cmds.textField(convertedResWidthTextField, edit=True, text=str(cfg['baked_texture_res'][0]))
         cmds.textField(convertedResHeightTextField, edit=True, text=str(cfg['baked_texture_res'][1]))
         cmds.checkBox(fillTextureSeamsCheckbox, edit=True, value=cfg['fill_texture_seams'])
@@ -759,8 +777,8 @@ def run():
         ET.SubElement(proj2tex, 'projectionPaddingPercentage').text = str(float(cmds.textField(projectionPaddingTextField, q=True, text=True).strip()))
 
         screenshotResolution = ET.SubElement(proj2tex, 'screenshotResolution')
-        ET.SubElement(screenshotResolution, 'width').text = str(int(cmds.textField(screenshotResWidthTextField, q=True, text=True).strip()))
-        ET.SubElement(screenshotResolution, 'height').text = str(int(cmds.textField(screenshotResHeightTextField, q=True, text=True).strip()))
+        ET.SubElement(screenshotResolution, 'width').text = str(int(cmds.textField(screenshotResTextField, q=True, text=True).strip()))
+        ET.SubElement(screenshotResolution, 'height').text = str(int(cmds.textField(screenshotResTextField, q=True, text=True).strip()))
 
         bakedTextureResolution = ET.SubElement(proj2tex, 'bakedTextureResolution')
         ET.SubElement(bakedTextureResolution, 'width').text = str(int(cmds.textField(convertedResWidthTextField, q=True, text=True).strip()))
