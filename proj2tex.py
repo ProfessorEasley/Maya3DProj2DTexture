@@ -25,7 +25,7 @@ from collections import namedtuple
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
 
-VERSION = '1.4'
+VERSION = '1.5'
 
 DIRECTION_FRONT = 'front'
 DIRECTION_BACK = 'back'
@@ -145,6 +145,10 @@ class Proj2Tex:
         return xc - extX - padding, yc - extY - padding, zc - extZ - padding, \
                xc + extX + padding, yc + extY + padding, zc + extZ + padding
 
+    @staticmethod
+    def convert_to_cm(val):
+        return float(cmds.convertUnit(val, fromUnit=cmds.currentUnit(q=True, linear=True), toUnit='cm').replace('cm', ''))    
+
     def make_projections(self):
         self.clear_nodes()
         xmin, ymin, zmin, xmax, ymax, zmax = self.compute_bbox()
@@ -152,44 +156,48 @@ class Proj2Tex:
             cmds.shadingNode('place3dTexture', name=proj.place3dTexture(), asUtility=True)
             posX, posY, posZ = (xmin + xmax)/2, (ymin + ymax)/2, (zmin + zmax)/2
             extX, extY, extZ = (xmax - xmin)/2, (ymax - ymin)/2, (zmax - zmin)/2
+
+            # projection will always be created as 2cm x 2cm regardless of current measurement size, so first convert scale to cm
             if proj.direction == DIRECTION_FRONT:
                 posZ += extZ
                 rotX, rotY, rotZ = 0.0, 0.0, 0.0
-                sclX, sclY, sclZ = extX, extY, 1.0
+                sclX, sclY, sclZ = Proj2Tex.convert_to_cm(extX), Proj2Tex.convert_to_cm(extY), 1.0
             elif proj.direction == DIRECTION_BACK:
                 posZ -= extZ
                 rotX, rotY, rotZ = 0.0, 180.0, 0.0
-                sclX, sclY, sclZ = extX, extY, 1.0
+                sclX, sclY, sclZ = Proj2Tex.convert_to_cm(extX), Proj2Tex.convert_to_cm(extY), 1.0
             elif proj.direction == DIRECTION_SIDE:
                 posX += extX
                 rotX, rotY, rotZ = 0.0, 90.0, 0.0
-                sclX, sclY, sclZ = extZ, extY, 1.0
+                sclX, sclY, sclZ = Proj2Tex.convert_to_cm(extZ), Proj2Tex.convert_to_cm(extY), 1.0
             elif proj.direction == DIRECTION_TOP:
                 posY += extY
                 rotX, rotY, rotZ = -90.0, 0.0, 0.0
-                sclX, sclY, sclZ = extX, extZ, 1.0
+                sclX, sclY, sclZ = Proj2Tex.convert_to_cm(extX), Proj2Tex.convert_to_cm(extZ), 1.0
             elif proj.direction == DIRECTION_BOTTOM:
                 posY -= extY
                 rotX, rotY, rotZ = 90.0, 0.0, 0.0
-                sclX, sclY, sclZ = extX, extZ, 1.0
+                sclX, sclY, sclZ = Proj2Tex.convert_to_cm(extX), Proj2Tex.convert_to_cm(extZ), 1.0
             else:
                 raise Exception(
                     'unrecognized projection direction \'{}\', valid options are {}'.format(proj.direction, VALID_DIRECTIONS))
+            
             cmds.setAttr(proj.place3dTexture() + '.translateX', posX)
             cmds.setAttr(proj.place3dTexture() + '.translateY', posY)
             cmds.setAttr(proj.place3dTexture() + '.translateZ', posZ)
             cmds.setAttr(proj.place3dTexture() + '.rotateX', rotX)
             cmds.setAttr(proj.place3dTexture() + '.rotateY', rotY)
             cmds.setAttr(proj.place3dTexture() + '.rotateZ', rotZ)
-            cmds.setAttr(proj.place3dTexture() + '.scaleX', sclX)
+            cmds.setAttr(proj.place3dTexture() + '.scaleX', sclX) 
             cmds.setAttr(proj.place3dTexture() + '.scaleY', sclY)
             cmds.setAttr(proj.place3dTexture() + '.scaleZ', sclZ)
+
             cmds.shadingNode('projection', name=proj.projection(), asUtility=True)
             cmds.connectAttr(proj.place3dTexture() + '.worldInverseMatrix', proj.projection() + '.placementMatrix', f=True)
 
     @staticmethod
     def _world_to_viewport_pt(view, pt):
-        p = OpenMaya.MPoint(pt[0], pt[1], pt[2])
+        p = OpenMaya.MPoint(Proj2Tex.convert_to_cm(pt[0]), Proj2Tex.convert_to_cm(pt[1]), Proj2Tex.convert_to_cm(pt[2]))
         util_x = OpenMaya.MScriptUtil()
         ptr_x = util_x.asShortPtr()
         util_y = OpenMaya.MScriptUtil()
