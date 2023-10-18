@@ -9,6 +9,15 @@ import proj2tex
 import importlib
 importlib.reload(proj2tex)
 proj2tex.run()
+
+Changelog:
+1.6 - Improved compatibility with macOS
+1.5 - Support linear units other than centimeters
+1.4 - Support for larger screenshots
+1.3 - Introduce compatibility with macOS
+1.2 - Add YouTube tutorial
+1.1 - Improve display of warnings
+1.0 - Initial version
 '''
 
 import maya.cmds as cmds
