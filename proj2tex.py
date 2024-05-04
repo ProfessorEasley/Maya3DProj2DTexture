@@ -11,6 +11,7 @@ importlib.reload(proj2tex)
 proj2tex.run()
 
 Changelog:
+1.7 - Add "flip" option for projections
 1.6 - Improved compatibility with macOS
 1.5 - Support linear units other than centimeters
 1.4 - Support for larger screenshots
@@ -34,7 +35,7 @@ from collections import namedtuple
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
 
-VERSION = '1.6'
+VERSION = '1.7'
 
 DIRECTION_FRONT = 'front'
 DIRECTION_BACK = 'back'
@@ -45,9 +46,10 @@ DIRECTION_BOTTOM = 'bottom'
 VALID_DIRECTIONS = [DIRECTION_FRONT, DIRECTION_BACK, DIRECTION_SIDE, DIRECTION_TOP, DIRECTION_BOTTOM]
 
 class Projection:
-    def __init__(self, name, direction, image_path):
+    def __init__(self, name, direction, flip, image_path):
         self.name = name
         self.direction = direction
+        self.flip = flip
         self.image_path = image_path
 
     def place3dTexture(self):
@@ -169,23 +171,38 @@ class Proj2Tex:
             # projection will always be created as 2cm x 2cm regardless of current measurement size, so first convert scale to cm
             if proj.direction == DIRECTION_FRONT:
                 posZ += extZ
-                rotX, rotY, rotZ = 0.0, 0.0, 0.0
+                if proj.flip:
+                    rotX, rotY, rotZ = 0.0, 180.0, 0.0    
+                else:
+                    rotX, rotY, rotZ = 0.0, 0.0, 0.0
                 sclX, sclY, sclZ = Proj2Tex.convert_to_cm(extX), Proj2Tex.convert_to_cm(extY), 1.0
             elif proj.direction == DIRECTION_BACK:
                 posZ -= extZ
-                rotX, rotY, rotZ = 0.0, 180.0, 0.0
+                if proj.flip:
+                    rotX, rotY, rotZ = 0.0, 0.0, 0.0
+                else:
+                    rotX, rotY, rotZ = 0.0, 180.0, 0.0
                 sclX, sclY, sclZ = Proj2Tex.convert_to_cm(extX), Proj2Tex.convert_to_cm(extY), 1.0
             elif proj.direction == DIRECTION_SIDE:
                 posX += extX
-                rotX, rotY, rotZ = 0.0, 90.0, 0.0
+                if proj.flip:
+                    rotX, rotY, rotZ = 0.0, -90.0, 0.0
+                else:
+                    rotX, rotY, rotZ = 0.0, 90.0, 0.0
                 sclX, sclY, sclZ = Proj2Tex.convert_to_cm(extZ), Proj2Tex.convert_to_cm(extY), 1.0
             elif proj.direction == DIRECTION_TOP:
                 posY += extY
-                rotX, rotY, rotZ = -90.0, 0.0, 0.0
+                if proj.flip:
+                    rotX, rotY, rotZ = 90.0, 0.0, 0.0
+                else:
+                    rotX, rotY, rotZ = -90.0, 0.0, 0.0
                 sclX, sclY, sclZ = Proj2Tex.convert_to_cm(extX), Proj2Tex.convert_to_cm(extZ), 1.0
             elif proj.direction == DIRECTION_BOTTOM:
                 posY -= extY
-                rotX, rotY, rotZ = 90.0, 0.0, 0.0
+                if proj.flip:
+                    rotX, rotY, rotZ = -90.0, 0.0, 0.0
+                else:
+                    rotX, rotY, rotZ = 90.0, 0.0, 0.0
                 sclX, sclY, sclZ = Proj2Tex.convert_to_cm(extX), Proj2Tex.convert_to_cm(extZ), 1.0
             else:
                 raise Exception(
@@ -324,30 +341,60 @@ class Proj2Tex:
 
                 view.refresh(False, True)
                 if proj.direction == DIRECTION_FRONT:
-                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, ymin, (zmin+zmax)/2.0])
-                    assert unclipped
-                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymax, (zmin+zmax)/2.0])
-                    assert unclipped
+                    if proj.flip:
+                        crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymin, (zmin+zmax)/2.0])
+                        assert unclipped
+                        crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, ymax, (zmin+zmax)/2.0])
+                        assert unclipped    
+                    else:
+                        crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, ymin, (zmin+zmax)/2.0])
+                        assert unclipped
+                        crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymax, (zmin+zmax)/2.0])
+                        assert unclipped
                 elif proj.direction == DIRECTION_BACK:
-                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymin, (zmin+zmax)/2.0])
-                    assert unclipped
-                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, ymax, (zmin+zmax)/2.0])
-                    assert unclipped
+                    if proj.flip:
+                        crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, ymin, (zmin+zmax)/2.0])
+                        assert unclipped
+                        crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymax, (zmin+zmax)/2.0])
+                        assert unclipped
+                    else:
+                        crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, ymin, (zmin+zmax)/2.0])
+                        assert unclipped
+                        crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, ymax, (zmin+zmax)/2.0])
+                        assert unclipped
                 elif proj.direction == DIRECTION_SIDE:
-                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [(xmin+xmax)/2.0, ymin, zmax])
-                    assert unclipped
-                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [(xmin+xmax)/2.0, ymax, zmin])
-                    assert unclipped
+                    if proj.flip:
+                        crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [(xmin+xmax)/2.0, ymin, zmin])
+                        assert unclipped
+                        crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [(xmin+xmax)/2.0, ymax, zmax])
+                        assert unclipped
+                    else:
+                        crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [(xmin+xmax)/2.0, ymin, zmax])
+                        assert unclipped
+                        crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [(xmin+xmax)/2.0, ymax, zmin])
+                        assert unclipped
                 elif proj.direction == DIRECTION_TOP:
-                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, (ymin+ymax)/2.0, zmax])
-                    assert unclipped
-                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, (ymin+ymax)/2.0, zmin])
-                    assert unclipped
+                    if proj.flip:
+                        crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, (ymin+ymax)/2.0, zmin])
+                        assert unclipped
+                        crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, (ymin+ymax)/2.0, zmax])
+                        assert unclipped
+                    else:
+                        crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, (ymin+ymax)/2.0, zmax])
+                        assert unclipped
+                        crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, (ymin+ymax)/2.0, zmin])
+                        assert unclipped
                 elif proj.direction == DIRECTION_BOTTOM:
-                    crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, (ymin+ymax)/2.0, zmin])
-                    assert unclipped
-                    crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, (ymin+ymax)/2.0, zmax])
-                    assert unclipped
+                    if proj.flip:
+                        crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, (ymin+ymax)/2.0, zmax])
+                        assert unclipped
+                        crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, (ymin+ymax)/2.0, zmin])
+                        assert unclipped
+                    else:
+                        crop_xmin, crop_ymin, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmin, (ymin+ymax)/2.0, zmin])
+                        assert unclipped
+                        crop_xmax, crop_ymax, unclipped = Proj2Tex._world_to_viewport_pt(view, [xmax, (ymin+ymax)/2.0, zmax])
+                        assert unclipped
                 else:
                     raise Exception('unrecognized projection direction \'{}'.format(proj.direction) + '\', valid options are: {}'.format(proj.direction, VALID_DIRECTIONS))
 
@@ -480,8 +527,10 @@ def parse_config(config_path):
     root = tree.getroot()
     projections = []
     for proj_elem in root.findall('./projections/projection'):
+        flip_elem = proj_elem.find('flip')
         proj = Projection(proj_elem.find('name').text,
                           proj_elem.find('direction').text,
+                          flip_elem.text == 'True' if flip_elem is not None else False,
                           abs_path(proj_elem.find('imagePath').text))
         projections.append(proj)
     layers = []
@@ -620,35 +669,41 @@ def run():
 
     configFrame = cmds.frameLayout(parent=column, label='Configuration')
     configScroll = cmds.scrollLayout(parent=configFrame, verticalScrollBarThickness=0, horizontalScrollBarThickness=0, height=250)
-    configColumn = cmds.columnLayout(parent=configScroll, columnWidth=300, columnAttach=('both', 5), rowSpacing=10)
+    configColumn = cmds.columnLayout(parent=configScroll, columnWidth=350, columnAttach=('both', 5), rowSpacing=10)
 
-    grid = cmds.gridLayout(parent=configColumn, numberOfColumns=3, cellWidth=100)
+    grid = cmds.gridLayout(parent=configColumn, numberOfColumns=4, cellWidth=100)
     cmds.text(parent=grid, label='Projections')
     cmds.text(parent=grid, label='Color')
     cmds.text(parent=grid, label='Alpha')
+    cmds.text(parent=grid, label='')
     frontCheckBox = cmds.checkBox(parent=grid, value=True, label='Front')
     frontColorTextField = cmds.textField(parent=grid, text='front.png')
     frontAlphaTextField = cmds.textField(parent=grid, text='')
+    frontFlipCheckBox = cmds.checkBox(parent=grid, value=False, label='Flip')
     backCheckBox = cmds.checkBox(parent=grid, value=True, label='Back')
     backColorTextField = cmds.textField(parent=grid, text='back.png')
     backAlphaTextField = cmds.textField(parent=grid, text='')
+    backFlipCheckBox = cmds.checkBox(parent=grid, value=False, label='Flip')
     sideCheckBox = cmds.checkBox(parent=grid, value=True, label='Side')
     sideColorTextField = cmds.textField(parent=grid, text='')
     sideAlphaTextField = cmds.textField(parent=grid, text='sideAlpha.png')
+    sideFlipCheckBox = cmds.checkBox(parent=grid, value=False, label='Flip')
     topCheckBox = cmds.checkBox(parent=grid, value=False, label='Top')
     topColorTextField = cmds.textField(parent=grid, text='')
     topAlphaTextField = cmds.textField(parent=grid, text='')
+    topFlipCheckBox = cmds.checkBox(parent=grid, value=False, label='Flip')
     bottomCheckBox = cmds.checkBox(parent=grid, value=False, label='Bottom')
     bottomColorTextField = cmds.textField(parent=grid, text='')
     bottomAlphaTextField = cmds.textField(parent=grid, text='')
+    bottomFlipCheckBox = cmds.checkBox(parent=grid, value=False, label='Flip')
 
-    ProjControl = namedtuple('ProjControl', ['name', 'direction', 'checkBox', 'colorTextField', 'alphaTextField'])
+    ProjControl = namedtuple('ProjControl', ['name', 'direction', 'checkBox', 'colorTextField', 'alphaTextField', 'flipCheckBox'])
     projControls = [
-        ProjControl('Front', DIRECTION_FRONT, frontCheckBox, frontColorTextField, frontAlphaTextField),
-        ProjControl('Back', DIRECTION_BACK, backCheckBox, backColorTextField, backAlphaTextField),
-        ProjControl('Side', DIRECTION_SIDE, sideCheckBox, sideColorTextField, sideAlphaTextField),
-        ProjControl('Top', DIRECTION_TOP, topCheckBox, topColorTextField, topAlphaTextField),
-        ProjControl('Bottom', DIRECTION_BOTTOM, bottomCheckBox, bottomColorTextField, bottomAlphaTextField)
+        ProjControl('Front', DIRECTION_FRONT, frontCheckBox, frontColorTextField, frontAlphaTextField, frontFlipCheckBox),
+        ProjControl('Back', DIRECTION_BACK, backCheckBox, backColorTextField, backAlphaTextField, backFlipCheckBox),
+        ProjControl('Side', DIRECTION_SIDE, sideCheckBox, sideColorTextField, sideAlphaTextField, sideFlipCheckBox),
+        ProjControl('Top', DIRECTION_TOP, topCheckBox, topColorTextField, topAlphaTextField, topFlipCheckBox),
+        ProjControl('Bottom', DIRECTION_BOTTOM, bottomCheckBox, bottomColorTextField, bottomAlphaTextField, bottomFlipCheckBox)
     ]
 
     row = cmds.rowLayout(parent=configColumn, numberOfColumns=2, columnWidth2=(150, 150), columnAttach2=('both', 'both'))
@@ -728,6 +783,7 @@ def run():
                     elif proj.name == alphaProjName:
                         projPresent = True
                         cmds.textField(pc.alphaTextField, edit=True, text=relativizePath(proj.image_path))
+                    cmds.checkBox(pc.flipCheckBox, edit=True, value=proj.flip)
             cmds.checkBox(pc.checkBox, edit=True, value=projPresent)
         # load layers
         layers = cfg['layers']
@@ -761,18 +817,21 @@ def run():
         projections = ET.SubElement(proj2tex, 'projections')
         for pc in projControls:
             if cmds.checkBox(pc.checkBox, q=True, value=True):
+                flip = cmds.checkBox(pc.flipCheckBox, q=True, value=True)
                 colorPath = cmds.textField(pc.colorTextField, q=True, text=True).strip()
                 if len(colorPath) > 0:
                     proj = ET.SubElement(projections, 'projection')
                     ET.SubElement(proj, 'name').text = '{}ColorProj'.format(pc.name)
                     ET.SubElement(proj, 'direction').text = pc.direction
                     ET.SubElement(proj, 'imagePath').text = colorPath
+                    ET.SubElement(proj, 'flip').text = str(flip)
                 alphaPath = cmds.textField(pc.alphaTextField, q=True, text=True).strip()
                 if len(alphaPath) > 0:
                     proj = ET.SubElement(projections, 'projection')
                     ET.SubElement(proj, 'name').text = '{}AlphaProj'.format(pc.name)
                     ET.SubElement(proj, 'direction').text = pc.direction
                     ET.SubElement(proj, 'imagePath').text = alphaPath
+                    ET.SubElement(proj, 'flip').text = str(flip)
 
         layers = ET.SubElement(proj2tex, 'layers')
         activeLayerControls = [lc for lc in layerControls if cmds.optionMenu(lc.colorMenu, q=True, select=True) > 1]
